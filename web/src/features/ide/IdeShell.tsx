@@ -22,7 +22,8 @@ import {
   addFile,
   removeFile,
 } from "@/features/editor/sketch-files";
-import TopBar, { BOARDS } from "./TopBar";
+import TopBar from "./TopBar";
+import { BOARDS } from "./board-match";
 import StatusBar from "./StatusBar";
 import BottomPanel, { type LineEnding } from "./BottomPanel";
 import ActivityBar, { type SidePanel } from "./ActivityBar";
@@ -46,6 +47,7 @@ export default function IdeShell() {
   const [fqbn, setFqbn] = useState(BOARDS[2].fqbn); // esp32:esp32:esp32s3
   const [sidePanel, setSidePanel] = useState<SidePanel | null>("library");
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [boardDialogOpen, setBoardDialogOpen] = useState(false);
 
   // frontend.plan.md §3.2 — çoklu dosya sketch modeli
   const [files, setFiles] = useState<SketchFile[]>(createDefaultSketch);
@@ -124,10 +126,26 @@ export default function IdeShell() {
       const chipInfo = await getChipInfo(port, appendLog);
       setChipInfo(chipInfo);
       setSyncFailCount(0);
+      setBoardDialogOpen(true); // bağlantı + tespit bitince kart seçim dialoğu açılır
     } catch (err) {
       setSyncFailCount((n) => n + 1);
       setError(describeSerialError(err));
     }
+  }
+
+  // Bağlı değilken tıklamak bağlanır (bağlanınca dialog otomatik açılır);
+  // zaten bağlıyken tıklamak sadece kart değiştirme dialoğunu açar.
+  function handleBoardTriggerClick() {
+    if (isConnected) {
+      setBoardDialogOpen(true);
+    } else {
+      handleConnect();
+    }
+  }
+
+  function handleSelectBoard(next: string) {
+    setFqbn(next);
+    setBoardDialogOpen(false);
   }
 
   function handleOpenFile(path: string) {
@@ -271,9 +289,14 @@ export default function IdeShell() {
   return (
     <div className="flex h-dvh flex-col">
       <TopBar
+        fqbn={fqbn}
+        chipInfo={chipInfo}
         connected={isConnected}
         connecting={connecting}
-        onConnect={handleConnect}
+        dialogOpen={boardDialogOpen}
+        onDialogOpenChange={setBoardDialogOpen}
+        onTriggerClick={handleBoardTriggerClick}
+        onSelectBoard={handleSelectBoard}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         flash={{
@@ -308,7 +331,7 @@ export default function IdeShell() {
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           {sidePanel && (
             <>
-              <ResizablePanel defaultSize="16" minSize="12" maxSize="30">
+              <ResizablePanel defaultSize="18" minSize="14" maxSize="30">
                 {sidePanel === "library" ? (
                   <FileTree
                     files={files}
@@ -318,7 +341,7 @@ export default function IdeShell() {
                     onRemove={handleRemoveFile}
                   />
                 ) : (
-                  <SettingsPanel fqbn={fqbn} onFqbnChange={setFqbn} chipInfo={chipInfo} />
+                  <SettingsPanel fqbn={fqbn} chipInfo={chipInfo} />
                 )}
               </ResizablePanel>
               <ResizableHandle withHandle />

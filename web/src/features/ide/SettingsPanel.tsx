@@ -2,36 +2,28 @@
 
 import { hasPsram } from "@/features/flash/flasher";
 import type { ChipInfo } from "@/features/serial/useSerialStore";
-import { BOARDS } from "./TopBar";
+import { boardLabel } from "./board-match";
 
 export interface SettingsPanelProps {
   fqbn: string;
-  onFqbnChange: (fqbn: string) => void;
   chipInfo: ChipInfo | null;
 }
 
-export default function SettingsPanel({ fqbn, onFqbnChange, chipInfo }: SettingsPanelProps) {
+export default function SettingsPanel({ fqbn, chipInfo }: SettingsPanelProps) {
   return (
     <div className="flex h-full flex-col gap-6 overflow-y-auto bg-[var(--vsc-sidebar)] p-4 text-[var(--vsc-fg)]">
       <section>
-        <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
+        <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
           Kart
         </h2>
-        <select
-          value={fqbn}
-          onChange={(e) => onFqbnChange(e.target.value)}
-          className="w-full rounded-md border border-[var(--vsc-border)] bg-[var(--vsc-selected)] px-3 py-2 text-xs font-[var(--font-data)] text-[var(--vsc-fg-active)]"
-        >
-          {BOARDS.map((b) => (
-            <option key={b.fqbn} value={b.fqbn}>
-              {b.label}
-            </option>
-          ))}
-        </select>
+        <p className="text-xs text-[var(--vsc-fg)]">
+          {boardLabel(fqbn)}{" "}
+          <span className="text-[var(--vsc-fg-muted)]">— üst şeritteki seçiciden değiştir</span>
+        </p>
       </section>
 
       <section className="border-t border-[var(--vsc-border)] pt-5">
-        <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
+        <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
           Çip bilgisi
         </h2>
         {chipInfo ? (
