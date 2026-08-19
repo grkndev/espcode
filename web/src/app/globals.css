@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+/* frontend.plan.md §11.1 — datasheet token seti */
+:root {
+  --stock: #edf0f2;
+  --ink: #10151a;
+  --rule: #c3cdd4;
+  --muted: #6b7a85;
+  --signal: #3d3bff;
+  --alarm: #c8102e;
+
+  --font-display: var(--font-bricolage), system-ui, sans-serif;
+  --font-ui: var(--font-instrument), system-ui, sans-serif;
+  --font-data: var(--font-martian), ui-monospace, monospace;
+  --font-code: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --stock: #0d1114;
+    --ink: #dce3e8;
+    --rule: #2a3238;
+    --muted: #7d8b95;
+  }
+}
+
+body {
+  background: var(--stock);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
