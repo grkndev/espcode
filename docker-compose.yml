@@ -1,0 +1,66 @@
+name: espcode
+
+networks:
+  ide-net:
+    internal: true
+
+volumes:
+  ide_toolchain:
+  ide_buildcache:
+
+services:
+  redis-jobs:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 192mb
+      --maxmemory-policy noeviction
+      --save ""
+      --appendonly no
+      --requirepass ${REDIS_JOBS_PASSWORD}
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.25"
+    networks: [ide-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_JOBS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  ide-builder:
+    build: ./builder
+    # VPS x86_64 (backend.plan.md §1) — Apple Silicon'da Rosetta ile eşleşsin diye
+    # açıkça sabitleniyor; gerçek x86_64 host'ta bu satır no-op.
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis-jobs: { condition: service_healthy }
+    mem_limit: 2g
+    mem_reservation: 256m
+    memswap_limit: 2g
+    cpus: "2.0"
+    cpu_shares: 256
+    pids_limit: 256
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    tmpfs:
+      - /work:size=512m,mode=1777,nodev,nosuid,noexec
+      # exec zorunlu: arduino-cli'nin PyInstaller ile paketlenmiş esptool
+      # aracı kendini /tmp'e açıp oradan çalıştırıyor.
+      - /tmp:size=128m,mode=1777,nodev,nosuid,exec
+    volumes:
+      - ide_toolchain:/opt/arduino:ro
+      - ide_buildcache:/var/cache/arduino
+    networks: [ide-net]
+    environment:
+      REDIS_URL: redis://:${REDIS_JOBS_PASSWORD}@redis-jobs:6379/0
+      ARDUINO_DIRECTORIES_DATA: /opt/arduino/data
+      ARDUINO_DIRECTORIES_USER: /opt/arduino/user
+      ARDUINO_DIRECTORIES_DOWNLOADS: /tmp/dl
+      ARDUINO_BUILD_CACHE_PATH: /var/cache/arduino
+      BUILD_TIMEOUT_SEC: "120"
+      COMPILE_JOBS: "2"

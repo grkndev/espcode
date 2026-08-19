@@ -13,3 +13,5 @@ secrets/
 
 .turbo/
 coverage/
+
+.claude/

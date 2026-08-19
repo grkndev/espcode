@@ -229,7 +229,11 @@ services:
     cap_drop: [ALL]
     tmpfs:
       - /work:size=512m,mode=1777,nodev,nosuid,noexec
-      - /tmp:size=64m,mode=1777
+      # exec zorunlu: arduino-cli'nin PyInstaller ile paketlenmiş esptool aracı
+      # kendini /tmp'e açıp oradan çalıştırıyor — noexec'te "failed to map
+      # segment from shared object" ile patlar. /work'te böyle bir ihtiyaç yok,
+      # orada noexec kalıyor.
+      - /tmp:size=128m,mode=1777,nodev,nosuid,exec
     volumes:
       - ide_toolchain:/opt/arduino:ro
       - ide_buildcache:/var/cache/arduino
@@ -239,6 +243,10 @@ services:
       ARDUINO_DIRECTORIES_DATA: /opt/arduino/data
       ARDUINO_DIRECTORIES_USER: /opt/arduino/user
       ARDUINO_DIRECTORIES_DOWNLOADS: /tmp/dl
+      # arduino-cli 1.1.1'de --build-cache-path bayrağı kaldırıldı, env var
+      # (ARDUINO_<SECTION>_<KEY> deseni, directories.data ile aynı) üzerinden
+      # veriliyor.
+      ARDUINO_BUILD_CACHE_PATH: /var/cache/arduino
       BUILD_TIMEOUT_SEC: "120"
       COMPILE_JOBS: "2"
 ```
@@ -498,9 +506,7 @@ kullanıcı isteği tetiklememeli.
 # desteklenen her FQBN için bir kez
 for FQBN in esp32:esp32:esp32 esp32:esp32:esp32c3 esp32:esp32:esp32s3; do
   docker compose run --rm ide-builder \
-    arduino-cli compile --fqbn "$FQBN" --jobs 2 \
-      --build-cache-path /var/cache/arduino \
-      /app/warmup/Blink
+    arduino-cli compile --fqbn "$FQBN" --jobs 2 /app/warmup/Blink
 done
 ```
 

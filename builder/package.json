@@ -1,0 +1,12 @@
+{
+  "name": "espcode-builder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/worker.js"
+  },
+  "dependencies": {
+    "bullmq": "^5.34.5",
+    "ioredis": "^5.4.2"
+  }
+}
