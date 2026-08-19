@@ -13,9 +13,9 @@ export interface PlotterHandle {
 // frontend.plan.md §7.2 — kanal başına sabit boyutlu ring buffer, son 2000 örnek
 const MAX_SAMPLES = 2000;
 
-// §11.1'in tek-aksiyon-rengi ilkesi tek seriye yeterli, ama grafik doğası
-// gereği çoklu kanalı ayırt etmek için birkaç ek renk gerekiyor.
-const PALETTE = ["#3d3bff", "#2e8b7a", "#c9a227", "#8b5cf6", "#e0607e", "#3f7fbf"];
+// Çoklu kanalı ayırt etmek için birkaç doygun renk — koyu panel zemininde
+// hepsi okunur kalacak şekilde seçildi.
+const PALETTE = ["#4fc1ff", "#2e8b7a", "#c9a227", "#8b5cf6", "#e0607e", "#3f7fbf"];
 
 function buildOptions(width: number, height: number, channels: string[]): uPlot.Options {
   return {
@@ -23,8 +23,8 @@ function buildOptions(width: number, height: number, channels: string[]): uPlot.
     height,
     scales: { x: { time: false } },
     axes: [
-      { stroke: "#6b7a85", grid: { stroke: "#c3cdd420" }, label: "saniye" },
-      { stroke: "#6b7a85", grid: { stroke: "#c3cdd420" } },
+      { stroke: "#71717a", grid: { stroke: "#27272a" }, label: "saniye" },
+      { stroke: "#71717a", grid: { stroke: "#27272a" } },
     ],
     series: [
       {},

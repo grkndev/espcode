@@ -63,6 +63,33 @@
   }
 }
 
+/* IDE kabuğu — tek tondan (zinc) koyu taban + tek vurgu rengi. Sabit, temaya
+   bağlı değil: bu ürünün kendi kimliği, VSCode taklidi değil. Vurgu rengi
+   projenin özgün "signal" ultramarine'i (#3D3BFF) — jenerik "AI mavisi/moru"
+   değil, bu projenin kendi renk tarihinden. */
+:root {
+  --vsc-activitybar: #09090b;
+  --vsc-sidebar: #0f0f11;
+  --vsc-panel: #09090b;
+  --vsc-statusbar: #09090b;
+  --vsc-border: #3f3f46;
+  --vsc-fg: #d4d4d8;
+  --vsc-fg-muted: #a1a1aa;
+  --vsc-fg-active: #ffffff;
+  --vsc-selected: #27272a;
+  --vsc-accent: #3d3bff;
+
+  --vsc-editor-bg: #0f0f11;
+  --vsc-editor-fg: #e4e4e7;
+
+  --vsc-syn-keyword: var(--vsc-accent);
+  --vsc-syn-string: #e2b93b;
+  --vsc-syn-comment: #71717a;
+  --vsc-syn-number: #34d399;
+  --vsc-syn-type: #22d3ee;
+  --vsc-syn-function: #e4e4e7;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -106,5 +133,6 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-weight: 500;
   }
 }

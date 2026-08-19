@@ -4,18 +4,33 @@ import { useEffect, useRef, useState } from "react";
 import { checkSerialSupport } from "@/lib/serial/support";
 import { serialSession } from "@/features/serial/SerialSession";
 import { useSerialStore } from "@/features/serial/useSerialStore";
-import { getChipInfo, flashFirmware, hasPsram } from "@/features/flash/flasher";
+import { getChipInfo, flashFirmware } from "@/features/flash/flasher";
 import { describeSerialError } from "@/lib/serial/errors";
-import SerialTerminal, { type TerminalHandle } from "@/features/monitor/Terminal";
+import { type TerminalHandle } from "@/features/monitor/Terminal";
 import { LineBuffer } from "@/features/monitor/line-buffer";
-import Plotter, { type PlotterHandle } from "@/features/plotter/Plotter";
+import { type PlotterHandle } from "@/features/plotter/Plotter";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import Editor from "@/features/editor/Editor";
+import FileTree from "@/features/editor/FileTree";
+import TabBar from "@/features/editor/TabBar";
+import Breadcrumb from "@/features/editor/Breadcrumb";
+import {
+  type SketchFile,
+  PRIMARY_FILE,
+  createDefaultSketch,
+  updateFileContent,
+  addFile,
+  removeFile,
+} from "@/features/editor/sketch-files";
+import TopBar, { BOARDS } from "./TopBar";
+import StatusBar from "./StatusBar";
+import BottomPanel, { type LineEnding } from "./BottomPanel";
+import ActivityBar, { type SidePanel } from "./ActivityBar";
+import SettingsPanel from "./SettingsPanel";
 
 // frontend.plan.md §5.3 — iki başarısız deneme sonrası manuel moda geç
 const MANUAL_MODE_THRESHOLD = 2;
 
-const BAUD_RATES = [9600, 19200, 38400, 57600, 74880, 115200, 230400, 460800, 921600];
-
-type LineEnding = "none" | "lf" | "cr" | "crlf";
 const LINE_ENDINGS: Record<LineEnding, string> = {
   none: "",
   lf: "\n",
@@ -27,6 +42,15 @@ export default function IdeShell() {
   const support = checkSerialSupport();
   const { state, chipInfo, error, connecting, connect, setChipInfo, setError } =
     useSerialStore();
+
+  const [fqbn, setFqbn] = useState(BOARDS[2].fqbn); // esp32:esp32:esp32s3
+  const [sidePanel, setSidePanel] = useState<SidePanel | null>("library");
+  const [terminalOpen, setTerminalOpen] = useState(false);
+
+  // frontend.plan.md §3.2 — çoklu dosya sketch modeli
+  const [files, setFiles] = useState<SketchFile[]>(createDefaultSketch);
+  const [openPaths, setOpenPaths] = useState<string[]>([PRIMARY_FILE]);
+  const [activePath, setActivePath] = useState(PRIMARY_FILE);
 
   const [logLines, setLogLines] = useState<string[]>([]);
   const [syncFailCount, setSyncFailCount] = useState(0);
@@ -52,13 +76,14 @@ export default function IdeShell() {
   const pendingLineRef = useRef("");
 
   const isMonitoring = state === "monitoring";
+  const isConnected = state !== "disconnected";
+  const activeFile = files.find((f) => f.path === activePath) ?? files[0];
 
   const appendLog = (line: string) => setLogLines((prev) => [...prev.slice(-199), line]);
 
   // Kart bağlıyken gelen tüm seri veri buraya akar — startMonitor()
   // çağrılmadığı sürece SerialSession hiç okuma döngüsü başlatmaz. Terminal
-  // ham parçayı olduğu gibi alır; plotter tam satır ister, o yüzden burada
-  // ayrıca satıra bölünüyor (frontend.plan.md §7.1).
+  // ham parçayı olduğu gibi alır; plotter tam satır ister (§7.1).
   useEffect(() => {
     return serialSession.subscribeData((chunk) => {
       terminalRef.current?.write(chunk);
@@ -103,6 +128,35 @@ export default function IdeShell() {
       setSyncFailCount((n) => n + 1);
       setError(describeSerialError(err));
     }
+  }
+
+  function handleOpenFile(path: string) {
+    setOpenPaths((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActivePath(path);
+  }
+
+  function handleCloseTab(path: string) {
+    setOpenPaths((prev) => {
+      const next = prev.filter((p) => p !== path);
+      if (activePath === path) {
+        setActivePath(next[next.length - 1] ?? PRIMARY_FILE);
+      }
+      return next.length ? next : [PRIMARY_FILE];
+    });
+  }
+
+  function handleAddFile(path: string) {
+    setFiles((prev) => addFile(prev, path));
+    handleOpenFile(path);
+  }
+
+  function handleRemoveFile(path: string) {
+    setFiles((prev) => removeFile(prev, path));
+    handleCloseTab(path);
+  }
+
+  function handleSelectPanel(panel: SidePanel) {
+    setSidePanel((prev) => (prev === panel ? null : panel));
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -184,7 +238,8 @@ export default function IdeShell() {
     if (e.key === "ArrowUp") {
       e.preventDefault();
       if (sendHistory.length === 0) return;
-      const idx = historyIndexRef.current === null ? sendHistory.length - 1 : Math.max(0, historyIndexRef.current - 1);
+      const idx =
+        historyIndexRef.current === null ? sendHistory.length - 1 : Math.max(0, historyIndexRef.current - 1);
       historyIndexRef.current = idx;
       setSendValue(sendHistory[idx]);
     }
@@ -214,182 +269,116 @@ export default function IdeShell() {
   }
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-6 p-8">
-      <header className="flex items-center justify-between border-b border-[var(--rule)] pb-4">
-        <h1 className="font-[var(--font-display)] text-xl tracking-tight text-[var(--ink)]">
-          espcode
-        </h1>
-        <button
-          onClick={handleConnect}
-          disabled={connecting || state !== "disconnected"}
-          className="rounded bg-[var(--signal)] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-        >
-          {connecting ? "Bağlanıyor…" : state === "disconnected" ? "Bağlan" : "Bağlı"}
-        </button>
-      </header>
+    <div className="flex h-dvh flex-col">
+      <TopBar
+        connected={isConnected}
+        connecting={connecting}
+        onConnect={handleConnect}
+        terminalOpen={terminalOpen}
+        onToggleTerminal={() => setTerminalOpen((v) => !v)}
+        flash={{
+          connected: isConnected,
+          fileName,
+          onFile: handleFile,
+          address,
+          onAddressChange: setAddress,
+          flashing,
+          progress,
+          flashDone,
+          canFlash: isConnected && !!fileData,
+          onFlash: handleFlash,
+        }}
+      />
 
-      {error && <Banner tone="error">{error}</Banner>}
-
-      {syncFailCount >= MANUAL_MODE_THRESHOLD && (
-        <Banner tone="warn">
-          Kart yanıt vermiyor. Kartın üzerindeki BOOT düğmesini basılı tut, EN (veya RST)
-          düğmesine bir kez bas, sonra BOOT&apos;u bırak. Ardından tekrar bağlanmayı dene.
-        </Banner>
+      {(error || syncFailCount >= MANUAL_MODE_THRESHOLD) && (
+        <div className="flex flex-col gap-1 border-b border-[var(--vsc-border)] bg-[var(--vsc-activitybar)] p-2">
+          {error && <Banner tone="error">{error}</Banner>}
+          {syncFailCount >= MANUAL_MODE_THRESHOLD && (
+            <Banner tone="warn">
+              Kart yanıt vermiyor. Kartın üzerindeki BOOT düğmesini basılı tut, EN (veya RST)
+              düğmesine bir kez bas, sonra BOOT&apos;u bırak. Ardından tekrar bağlanmayı dene.
+            </Banner>
+          )}
+        </div>
       )}
 
-      {chipInfo && (
-        <section className="rounded border border-[var(--rule)] p-4">
-          <h2 className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
-            Çip bilgisi
-          </h2>
-          <dl className="grid grid-cols-2 gap-y-2 font-[var(--font-data)] text-sm">
-            <Field label="Çip" value={chipInfo.description} />
-            <Field label="MAC" value={chipInfo.macAddress} />
-            <Field label="Kristal" value={`${chipInfo.crystalFreqMHz} MHz`} />
-            <Field label="Flash" value={chipInfo.flashSize} />
-            <Field label="PSRAM" value={hasPsram(chipInfo.features) ? "Var" : "Yok"} />
-            <Field label="Özellikler" value={chipInfo.features.join(", ")} />
-          </dl>
-        </section>
-      )}
+      <div className="flex min-h-0 flex-1">
+        <ActivityBar active={sidePanel} onSelect={handleSelectPanel} />
 
-      {chipInfo && (
-        <section className="flex flex-col gap-3 rounded border border-[var(--rule)] p-4">
-          <h2 className="text-xs uppercase tracking-wide text-muted-foreground">
-            Firmware yükle
-          </h2>
-          <input type="file" accept=".bin" onChange={handleFile} disabled={flashing} />
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Adres
-            <input
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              disabled={flashing}
-              className="w-24 rounded border border-[var(--rule)] px-2 py-1 font-[var(--font-data)]"
-            />
-          </label>
-
-          <button
-            onClick={handleFlash}
-            disabled={!fileData || flashing}
-            className="rounded bg-[var(--signal)] px-4 py-2 text-sm font-medium text-white disabled:opacity-40"
-          >
-            {flashing ? "Yükleniyor…" : `Karta yükle${fileName ? ` (${fileName})` : ""}`}
-          </button>
-
-          {progress !== null && (
-            <div className="h-2 w-full overflow-hidden rounded bg-[var(--rule)]">
-              <div
-                className="h-full bg-[var(--signal)] transition-all"
-                style={{ width: `${Math.round(progress * 100)}%` }}
-              />
-            </div>
+        <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
+          {sidePanel && (
+            <>
+              <ResizablePanel defaultSize="16" minSize="12" maxSize="30">
+                {sidePanel === "library" ? (
+                  <FileTree
+                    files={files}
+                    activePath={activePath}
+                    onOpen={handleOpenFile}
+                    onAdd={handleAddFile}
+                    onRemove={handleRemoveFile}
+                  />
+                ) : (
+                  <SettingsPanel fqbn={fqbn} onFqbnChange={setFqbn} chipInfo={chipInfo} />
+                )}
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+            </>
           )}
 
-          {flashDone && (
-            <Banner tone="ok">Yükleme tamamlandı, kart yeniden başlatıldı.</Banner>
-          )}
-        </section>
-      )}
+          <ResizablePanel minSize="40">
+            <ResizablePanelGroup orientation="vertical" className="h-full">
+              <ResizablePanel defaultSize="70" minSize="30">
+                <div className="flex h-full flex-col">
+                  <TabBar
+                    openPaths={openPaths}
+                    activePath={activePath}
+                    onSelect={setActivePath}
+                    onClose={handleCloseTab}
+                  />
+                  <Breadcrumb path={activePath} />
+                  <div className="min-h-0 flex-1">
+                    <Editor
+                      key={activeFile.path}
+                      value={activeFile.content}
+                      onChange={(content) =>
+                        setFiles((prev) => updateFileContent(prev, activeFile.path, content))
+                      }
+                    />
+                  </div>
+                </div>
+              </ResizablePanel>
 
-      {chipInfo && (
-        <section className="flex flex-col gap-3 rounded border border-[var(--rule)] p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xs uppercase tracking-wide text-muted-foreground">
-              Seri monitör
-            </h2>
-            <div className="flex items-center gap-2">
-              <select
-                value={baud}
-                onChange={(e) => handleBaudChange(Number(e.target.value))}
-                className="rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-xs font-[var(--font-data)]"
-              >
-                {BAUD_RATES.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={handleToggleMonitor}
-                disabled={flashing}
-                className="rounded bg-[var(--signal)] px-3 py-1 text-xs font-medium text-white disabled:opacity-40"
-              >
-                {isMonitoring ? "Durdur" : "Başlat"}
-              </button>
-            </div>
-          </div>
+              {terminalOpen && (
+                <>
+                  <ResizableHandle withHandle />
+                  <ResizablePanel defaultSize="30" minSize="15">
+                    <BottomPanel
+                      terminalRef={terminalRef}
+                      plotterRef={plotterRef}
+                      isMonitoring={isMonitoring}
+                      canMonitor={isConnected && !flashing}
+                      baud={baud}
+                      onBaudChange={handleBaudChange}
+                      onToggleMonitor={handleToggleMonitor}
+                      sendValue={sendValue}
+                      onSendValueChange={setSendValue}
+                      onSendKeyDown={handleSendKeyDown}
+                      lineEnding={lineEnding}
+                      onLineEndingChange={setLineEnding}
+                      onSend={handleSend}
+                      onExport={exportBuffer}
+                      buildLog={logLines.join("")}
+                    />
+                  </ResizablePanel>
+                </>
+              )}
+            </ResizablePanelGroup>
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
 
-          <SerialTerminal ref={terminalRef} />
-
-          <div className="flex items-center gap-2">
-            <input
-              value={sendValue}
-              onChange={(e) => setSendValue(e.target.value)}
-              onKeyDown={handleSendKeyDown}
-              disabled={!isMonitoring}
-              placeholder={isMonitoring ? "Karta gönder…" : "Önce monitörü başlat"}
-              className="flex-1 rounded border border-[var(--rule)] px-2 py-1 text-sm font-[var(--font-data)] disabled:opacity-40"
-            />
-            <select
-              value={lineEnding}
-              onChange={(e) => setLineEnding(e.target.value as LineEnding)}
-              className="rounded border border-[var(--rule)] bg-transparent px-2 py-1 text-xs"
-            >
-              <option value="none">Yok</option>
-              <option value="lf">LF</option>
-              <option value="cr">CR</option>
-              <option value="crlf">CRLF</option>
-            </select>
-            <button
-              onClick={handleSend}
-              disabled={!isMonitoring || !sendValue}
-              className="rounded border border-[var(--rule)] px-3 py-1 text-sm disabled:opacity-40"
-            >
-              Gönder
-            </button>
-          </div>
-
-          <div>
-            <h3 className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
-              Plotter
-            </h3>
-            <div className="rounded border border-[var(--rule)] p-2">
-              <Plotter ref={plotterRef} />
-            </div>
-          </div>
-
-          <div className="flex gap-2 text-xs text-muted-foreground">
-            <button onClick={() => exportBuffer("log")} className="underline">
-              .log indir
-            </button>
-            <button onClick={() => exportBuffer("csv")} className="underline">
-              .csv indir
-            </button>
-          </div>
-        </section>
-      )}
-
-      {logLines.length > 0 && (
-        <details className="rounded border border-[var(--rule)] p-4">
-          <summary className="cursor-pointer text-xs uppercase tracking-wide text-muted-foreground">
-            Günlük
-          </summary>
-          <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap font-[var(--font-code)] text-xs text-muted-foreground">
-            {logLines.join("")}
-          </pre>
-        </details>
-      )}
+      <StatusBar state={state} fqbn={fqbn} baud={baud} />
     </div>
-  );
-}
-
-function Field({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="text-[var(--ink)]">{value}</dd>
-    </>
   );
 }
 
@@ -402,11 +391,9 @@ function Banner({
 }) {
   const toneClass =
     tone === "error"
-      ? "border-[var(--alarm)] text-[var(--alarm)]"
+      ? "border-red-500 text-red-400"
       : tone === "ok"
-        ? "border-[var(--signal)] text-[var(--signal)]"
-        : "border-muted-foreground text-muted-foreground";
-  return (
-    <div className={`rounded border px-4 py-3 text-sm ${toneClass}`}>{children}</div>
-  );
+        ? "border-[var(--vsc-accent)] text-[var(--vsc-accent)]"
+        : "border-[var(--vsc-fg-muted)] text-[var(--vsc-fg-muted)]";
+  return <div className={`rounded border px-4 py-3 text-sm ${toneClass}`}>{children}</div>;
 }

@@ -329,7 +329,13 @@ kuralı kurulmalı — istek origin'e hiç ulaşmasın.
 
 ```js
 const key = sha256([
-  normalizeSource(source),   // satır sonları normalize, sondaki boşluklar kırpılmış
+  // path'e göre sıralanmış [path, normalizeSource(content)] çiftleri — dosya
+  // sırası isteğe göre değişse de aynı sketch aynı anahtarı versin diye
+  files
+    .slice()
+    .sort((a, b) => a.path.localeCompare(b.path))
+    .map(f => `${f.path}\0${normalizeSource(f.content)}`)
+    .join('\0'),
   fqbn,
   JSON.stringify(buildOptions, Object.keys(buildOptions).sort()),
   coreVersion,               // ör. "esp32:esp32@3.0.7"

@@ -133,11 +133,23 @@ src/
 │  │  └─ parse-samples.ts
 │  ├─ editor/
 │  │  ├─ Editor.tsx
+│  │  ├─ cm-theme.ts           # §11.5 VSCode Dark Modern + Light+ tema
 │  │  ├─ arduino-completions.ts
-│  │  └─ diagnostics.ts        # gcc hata → CM6 marker
+│  │  ├─ sketch-files.ts       # çoklu dosya modeli (§3.2), sketch klasörü kuralları
+│  │  ├─ FileTree.tsx          # Sketch paneli — dosya listesi, ekle/sil
+│  │  ├─ TabBar.tsx            # açık dosya sekmeleri
+│  │  ├─ Breadcrumb.tsx        # sketch / dosya.ino satırı
+│  │  └─ diagnostics.ts        # gcc hata → CM6 marker (Faz 5)
+│  ├─ ide/
+│  │  ├─ IdeShell.tsx          # yerleşimi kurar, panelleri birleştirir
+│  │  ├─ TopBar.tsx
+│  │  ├─ ActivityBar.tsx       # ikon şeridi — Sketch/Ayarlar geçişi
+│  │  ├─ SettingsPanel.tsx     # kart seçici + çip bilgisi (eski sağ panelin yeri)
+│  │  ├─ StatusBar.tsx
+│  │  └─ BottomPanel.tsx       # Tabs: Monitör | Plotter | Derleme Çıktısı, terminal ikonuyla aç/kapa
 │  └─ build/
-│     ├─ useBuild.ts           # POST + SSE
-│     └─ parse-gcc-output.ts
+│     ├─ useBuild.ts           # POST + SSE (Faz 5)
+│     └─ parse-gcc-output.ts   # (Faz 5)
 └─ lib/
    ├─ storage/                 # IndexedDB + OPFS
    └─ design/tokens.css
@@ -152,6 +164,32 @@ yaşayan tek bir sınıfa ait olur; bileşenler ona Zustand üzerinden abone olu
 Bu ayrım yapılmazsa karşılaşılacak klasik hata: bileşen unmount olur, `reader` lock'u
 serbest bırakılmaz, port kapanmaz, ve sonraki `requestPort()` "port already open" ile
 başarısız olur. Kullanıcı için tek çözüm sayfayı yenilemek olur.
+
+### 3.2 Çoklu dosya sketch modeli
+
+Arduino sketch'i tek `.ino` sınırından çıktı — arduino-cli aynı klasörde birden fazla
+`.ino` (tek çeviri birimine birleştirilir), `.cpp` ve `.h` dosyasını destekliyor
+(master.plan.md §3 Tasarım notları). Client tarafındaki model:
+
+```ts
+interface SketchFile {
+  path: string;       // "sketch.ino", "utils.cpp", "utils.h"
+  content: string;
+}
+```
+
+Kurallar:
+- **Birincil dosya sabit `sketch.ino`.** Silinemez, adı değiştirilemez — arduino-cli'nin
+  "klasör adı = ana `.ino` adı" kuralına sunucu tarafında `sketch` klasör adıyla eşleşecek
+  şekilde zaten sabitlenmiş (backend.plan.md builder worker'ı).
+- Yeni dosya eklerken uzantı `.ino` / `.cpp` / `.h` / `.hpp` ile sınırlı — derleyiciye
+  gitmeyecek bir dosya türü sketch'e giremez.
+- Sekmeler (`TabBar.tsx`) açık dosyaların sırasını tutar, `FileTree.tsx`'teki tüm dosya
+  listesinden ayrı bir durum — bir dosyaya tıklamak onu açar/aktif eder, sekmeyi kapatmak
+  dosyayı silmez.
+- Editör bileşeni aktif dosyanın `path`'ini React `key` olarak alır — dosya değişince
+  CodeMirror tamamen yeniden kurulur. Bu, her dosyanın kendi undo geçmişini izole eder;
+  aksi halde "Ctrl+Z" dosya değiştirdikten sonra önceki dosyanın değişikliğini geri alırdı.
 
 ---
 
@@ -471,7 +509,10 @@ değil — kartın örnekleme hızı sabit olmayabilir.
 const res = await fetch('/api/compile', {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ source, fqbn, options }),
+  // files: sketch'teki tüm dosyalar — [{ path: "sketch.ino", content: "..." }, ...]
+  // Birincil .ino her zaman ilk eleman; sıralama derleyici tarafında önemsiz
+  // ama cache anahtarı hesabında deterministik olması için path'e göre sıralanır.
+  body: JSON.stringify({ files, fqbn, options }),
 });
 
 // İki olası yanıt:
@@ -575,9 +616,21 @@ senin siten üzerinden paylaşır.
 
 ## 11. Tasarım yönü
 
-Konu, kendi görsel dilini zaten üretmiş bir alan: **datasheet**. Espressif ve TI
-veri sayfalarının dili — ince mavi-gri cetveller, yoğun tablolar, pin numaralandırması,
-offset haritaları, tek doygun mürekkep rengi. IDE'yi "canlı bir datasheet" olarak kur.
+**Güncelleme — IDE kabuğu artık VSCode Dark Modern renklerini birebir kullanıyor.**
+Konu başlangıçta kendi görsel dilini üretmişti (**datasheet** — Espressif/TI veri
+sayfalarının dili, soğuk kağıt tonu + tek sinyal rengi), ama kullanıcı IDE kabuğunun
+gerçek VSCode'a **piksel düzeyinde** benzemesini istedi — yalnızca yerleşim değil,
+renkler de. §11.1'deki datasheet paleti IDE kabuğu (activity bar, sidebar, sekmeler,
+panel, status bar, editör) için artık geçerli değil; onun yerini §11.5 alıyor. Bu iki
+palet aynı anda var: datasheet tokenleri (`--stock/--ink/--rule/--signal/--alarm`)
+shadcn eşlemesi ve olası gelecekteki gövde-dışı yüzeyler (ör. `/f/[slug]` paylaşım
+sayfası) için duruyor; IDE'nin kendisi `--vsc-*` tokenlerini kullanıyor (§11.5).
+
+### 11.0 Eski yön (artık yalnızca IDE dışı yüzeyler için)
+
+Datasheet dili — ince mavi-gri cetveller, yoğun tablolar, pin numaralandırması, offset
+haritaları, tek doygun mürekkep rengi — hâlâ geçerli bir referans ama artık IDE kabuğunu
+tarif etmiyor.
 
 ### 11.1 Token seti
 
@@ -593,8 +646,12 @@ offset haritaları, tek doygun mürekkep rengi. IDE'yi "canlı bir datasheet" ol
 ```
 
 Dark mode ayrı bir tema değil, aynı sistemin negatifi: `--stock: #0D1114`,
-`--ink: #DCE3E8`. Terminal ve editör her iki modda da koyu kalır — kod okuma yüzeyi
-sabit olmalı.
+`--ink: #DCE3E8`.
+
+**Güncelleme — editör ve terminal artık sabit koyu değil.** İlk tasarımda "kod okuma
+yüzeyi sabit kalmalı" gerekçesiyle editör ve terminal her iki modda da koyu
+tutuluyordu. Bu karar geri alındı: ikisi de artık `--stock`/`--ink` çiftini takip
+ediyor, tüm arayüzle tutarlı tek bir tema davranışı için (§11.5).
 
 **shadcn/ui ile uzlaştırma.** shadcn (tweakcn preset `b2GVUt5DMm`) kendi CSS
 değişken adlarını (`--background`, `--foreground`, `--primary`, `--radius` vb.)
@@ -640,24 +697,102 @@ kalmalı.
 
 ### 11.4 Yerleşim
 
+VSCode'un gerçek yapısı: **Activity Bar** (ince ikon şeridi) + **tek yan panel**
+(Activity Bar'daki ikona göre içeriği değişir — Sketch dosyaları ya da Kart Ayarları,
+ikisi asla aynı anda açık değil) + editör (sekmeli, breadcrumb'lı) + isteğe bağlı alt
+panel (Terminal). Sabit, her zaman görünen bir sağ panel **yok** — ilk tasarımdaki
+(bir önceki revizyon) her zaman açık çip bilgisi paneli kaldırıldı.
+
 ```
-┌────────────────────────────────────────────────────────────┐
-│  [kart adı ▾]  [derle ve yükle]           ESP32-S3 · 16MB  │  üst şerit
-├──────────────────────────────┬─────────────────────────────┤
-│                              │  ┌───────────────────────┐  │
-│                              │  │ chip · MAC · flash    │  │
-│         editör               │  ├───────────────────────┤  │
-│                              │  │ flash haritası        │  │
-│                              │  └───────────────────────┘  │
-│                              │                             │
-│                              │   monitör / plotter         │
-├──────────────────────────────┴─────────────────────────────┤
-│  derleme çıktısı (katlanabilir)                            │
-└────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│ espcode                                    [▤ terminal] [⇪ yükle] [● Bağlı] │ üst şerit
+├────┬────────────────────────────────────────────────────────────────┤
+│ 📁 │ sketch.ino ✕ │ utils.h ✕ │                                       │  sekmeler
+│ ⚙  │ sketch / sketch.ino                                              │  breadcrumb
+│    ├────────────────────────────────────────────────────────────────┤
+│    │                                                                  │
+│    │   editör (CM6, açık zemin — VSCode Light+)                     │
+│    │                                                                  │
+│    ├────────────────────────────────────────────────────────────────┤
+│    │ [Monitör] [Plotter] [Derleme Çıktısı]         (terminal ikonuyla │
+│    │ (aktif sekmenin içeriği)                        açılıp kapanır) │
+├────┴────────────────────────────────────────────────────────────────┤
+│ ● esp32:esp32:esp32s3   COM5 · 115200                                 │  status bar
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
+**Activity Bar (📁/⚙ ikonları):** tıklanan ikon aktifse yan panel onu gösterir; aynı
+ikona tekrar tıklamak paneli tamamen kapatır (VSCode'un kendi davranışı). 📁 = Sketch
+dosya listesi (§3.2), ⚙ = Kart Ayarları — FQBN seçici + bağlıyken çip bilgisi buraya
+taşındı, üst şeritten ve eski sağ panelden kaldırıldı.
+
+**Alt panel varsayılan kapalı.** Monitör/Plotter/Derleme Çıktısı sürekli yer kaplamıyor;
+üst şeritteki terminal ikonu açıp kapatıyor. Kapalıyken editör tam yüksekliği kullanır.
+
+**Firmware yükleme üst şeritte küçük bir simgeye taşındı.** Derleme backend'i gelene
+kadar (Faz 5) tek flash yolu elle `.bin` yüklemek — sürekli görünen bir panel yerine
+tıklanınca dosya seçici + adres + ilerleme çubuğunu içeren bir popover açılıyor. Faz
+5'te "derle ve yükle" gelince aynı simge o akışı tetikleyecek, yeri sabit kalacak.
+
+Panel bölünmeleri sürüklenebilir (shadcn `resizable`, `react-resizable-panels`
+sarmalayıcısı) — gerçek IDE hissi ucuz bir bağımlılıkla geliyor.
+
 Masaüstü öncelikli, ve bu bir taviz değil — Web Serial zaten masaüstünde. Dar ekranda
-editör tam genişliğe geçer, monitör alt sekmeye iner, flash butonları gizlenir.
+yan panel ve alt panel varsayılan kapalı zaten, editör öncelik alır.
+
+### 11.5 IDE kabuğu — VSCode Dark Modern renkleri (birebir)
+
+Kullanıcı kararı: gerçek VSCode'un koyu tema kabuğu + açık (Light+) editör
+kombinasyonu piksel düzeyinde hedefleniyor. Bu renkler temaya bağlı değil, sabit —
+`prefers-color-scheme` takip etmiyor, çünkü hedef belirli bir görünüm (VSCode'un
+kendi varsayılanı da öyle çalışmıyor).
+
+```css
+:root {
+  --vsc-activitybar: #181818;
+  --vsc-sidebar:     #1e1e1e;
+  --vsc-panel:       #181818;  /* alt panel (Monitör/Plotter/Derleme Çıktısı) */
+  --vsc-statusbar:   #181818;
+  --vsc-border:      #2b2b2b;
+  --vsc-fg:           #cccccc;
+  --vsc-fg-muted:     #858585;
+  --vsc-fg-active:    #ffffff;
+  --vsc-selected:     #2a2d2e;  /* sidebar/liste satır vurgusu */
+  --vsc-accent:       #0078d4;  /* VSCode mavisi — Bağlan butonu, aktif ikon çubuğu, imleç */
+
+  --vsc-editor-bg: #ffffff;
+  --vsc-editor-fg: #1e1e1e;
+
+  /* Light+ syntax paleti */
+  --vsc-syn-keyword:  #0000ff;
+  --vsc-syn-string:   #a31515;
+  --vsc-syn-comment:  #008000;  /* italik */
+  --vsc-syn-number:   #098658;
+  --vsc-syn-type:     #267f99;
+  --vsc-syn-function: #795e26;
+}
+```
+
+**Hangi bileşen hangi tonu kullanır:**
+
+| Bileşen | Zemin | Not |
+|---|---|---|
+| Activity bar (ikon şeridi) | `--vsc-activitybar` | Aktif ikon solunda `--vsc-fg-active` renginde 2px şerit |
+| Sidebar (Sketch / Ayarlar paneli) | `--vsc-sidebar` | Seçili satır `--vsc-selected` |
+| Sekme çubuğu | `--vsc-activitybar` (pasif), `--vsc-editor-bg` (aktif sekme) | Aktif sekme editörle aynı zeminde — VSCode'un imzası |
+| Breadcrumb (`sketch / dosya.ino`) | `--vsc-editor-bg` | Küçük gri metin `#616161` |
+| Editör (CM6) | `--vsc-editor-bg` | Light+ syntax, seçim rengi `#add6ff` |
+| Alt panel (Monitör/Plotter/Derleme Çıktısı) | `--vsc-panel` | Terminal (xterm) de aynı koyu tonu kullanır — canvas `fillStyle` CSS değişkeni çözemediği için literal hex (`Terminal.tsx`) |
+| Status bar | `--vsc-statusbar` | — |
+
+**Kapsam dışı bırakılan:** işletim sistemi pencere çerçevesi (trafik ışığı düğmeleri,
+üstteki komut merkezi arama pili) taklit edilmiyor — bunlar VSCode'un değil macOS'un
+çizdiği native chrome, bir web sayfasının onu taklit etmesi "native uygulama numarası"
+olur. Tarayıcının kendi sekme/adres çubuğu zaten bu rolü görüyor.
+
+**Datasheet paletiyle ilişki:** §11.1'deki `--stock/--ink/--signal` tokenleri
+kaldırılmadı — hâlâ shadcn eşlemesinde ve olası IDE-dışı sayfalarda (`/f/[slug]`)
+kullanılabilir, ama IDE kabuğunun kendisi artık onlara referans vermiyor.
 
 ---
 
@@ -738,7 +873,7 @@ tek bayt yük bindirmez. Faz 4, VPS raporundaki altyapının hazır olmasını b
 
 | Konu | Karar |
 |---|---|
-| Derleme isteği | `POST /api/compile { source, fqbn, options }` |
+| Derleme isteği | `POST /api/compile { files: [{path, content}], fqbn, options }` |
 | Cache hit yanıtı | `{ cached: true, binUrl, elfUrl, sizes }` |
 | Cache miss yanıtı | `{ cached: false, jobId }` |
 | Log akışı | SSE, `GET /api/jobs/:id/stream`, olaylar: `log`, `done`, `failed` |

@@ -11,11 +11,11 @@ export interface TerminalHandle {
   clear: () => void;
 }
 
-// frontend.plan.md §11.2 — terminal her iki modda da koyu kalır, kod okuma
-// yüzeyi sabit olmalı; sayfanın açık/koyu temasını takip etmez.
+// Panelin kendi koyu tonu — kabuğun geri kalanıyla aynı (canvas fillStyle
+// CSS var() çözemediği için literal hex).
 const XTERM_THEME = {
-  background: "#0d1114",
-  foreground: "#dce3e8",
+  background: "#09090b",
+  foreground: "#a1a1aa",
   cursor: "#3d3bff",
 };
 

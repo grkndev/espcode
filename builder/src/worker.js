@@ -26,12 +26,25 @@ async function ensureArduinoConfig() {
   await execFileAsync("arduino-cli", ["config", "init", "--dest-dir", "/tmp", "--overwrite"]);
 }
 
+// frontend.plan.md §3.2 — düz dosya adı, izin verilen uzantı; alt klasör veya
+// path traversal yok (worker bu adları doğrudan diske yazıyor).
+const FILE_NAME_RE = /^[\w.-]+\.(ino|cpp|h|hpp)$/;
+
+function validateFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return "empty_source";
+  if (!files.some((f) => f.path === "sketch.ino")) return "missing_primary_file";
+  for (const f of files) {
+    if (typeof f.path !== "string" || !FILE_NAME_RE.test(f.path)) return "invalid_file_name";
+    if (typeof f.content !== "string") return "invalid_file_content";
+  }
+  return null;
+}
+
 // backend.plan.md §7.3 — kaynak dosyaya yazılır, komut satırına değil;
 // execFile kullanılır (shell yorumlaması yok).
-async function compileJob({ source, fqbn }) {
-  if (typeof source !== "string" || !source.trim()) {
-    return { ok: false, error: "empty_source" };
-  }
+async function compileJob({ files, fqbn }) {
+  const invalid = validateFiles(files);
+  if (invalid) return { ok: false, error: invalid };
   if (!ALLOWED_FQBN.has(fqbn)) {
     return { ok: false, error: "unsupported_board" };
   }
@@ -40,7 +53,9 @@ async function compileJob({ source, fqbn }) {
   const sketchDir = path.join(jobDir, "sketch");
   const buildDir = path.join(jobDir, "build");
   await mkdir(sketchDir, { recursive: true });
-  await writeFile(path.join(sketchDir, "sketch.ino"), source, "utf8");
+  await Promise.all(
+    files.map((f) => writeFile(path.join(sketchDir, f.path), f.content, "utf8")),
+  );
 
   try {
     const { stdout, stderr } = await execFileAsync(

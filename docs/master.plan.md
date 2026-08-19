@@ -115,7 +115,7 @@ CREATE TABLE projects (
   user_id                 uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name                    text NOT NULL,
   fqbn                    text NOT NULL,
-  source                  text,                     -- güncel taslak, tek .ino; storage_provider='github' ise kullanılmaz
+  files                   jsonb,                    -- güncel taslak, [{path, content}]; storage_provider='github' ise kullanılmaz
   storage_provider        text NOT NULL DEFAULT 'postgres',  -- 'postgres' | 'github'
   github_installation_id  bigint,
   github_repo_full_name   text,                     -- 'kullanici/repo'
@@ -146,7 +146,7 @@ CREATE TABLE builds (
 CREATE TABLE project_versions (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   project_id  uuid NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  source      text NOT NULL,              -- o anki tam snapshot
+  files       jsonb NOT NULL,             -- o anki tam snapshot, [{path, content}]
   fqbn        text NOT NULL,
   build_key   char(64) REFERENCES builds(build_key),
   note        text,
@@ -166,9 +166,13 @@ CREATE TABLE shares (
 
 ### Tasarım notları
 
-- **`projects.source` tek alan, çoklu dosya yok.** Arduino sketch'lerinin ezici çoğunluğu
-  tek `.ino`. Çoklu dosya desteği tabloyu `project_files(project_id, path, content)` haline
-  getirir; ihtiyaç ortaya çıkana kadar eklenmiyor.
+- **`projects.files` çoklu dosyayı destekler.** Arduino sketch'leri birden fazla `.ino`
+  (aynı çeviri birimine birleştirilir), `.cpp` ve `.h` dosyası içerebilir — arduino-cli
+  bunu doğal olarak destekliyor. Ayrı bir `project_files` tablosu yerine `jsonb` array
+  seçildi: sketch başına dosya sayısı küçük (tipik olarak tek haneli), sorgulama ihtiyacı
+  yok (hep tüm proje birlikte okunuyor/yazılıyor), ayrı tabloya çıkmanın getirisi yok.
+  Tam dosya sayısı/boyutu büyürse (ki büyümesi beklenmiyor) `project_files` tablosuna
+  geçiş yine mümkün.
 - **`project_versions` yalnızca flash edilen kod için yazılır**, her kaydetmede değil.
   Kullanıcının istediği şey "karta yüklediğim programlar" — otomatik taslak geçmişi değil.
   Bu, tablo büyümesini de doğal olarak sınırlıyor.
@@ -190,7 +194,8 @@ CREATE TABLE shares (
 |---|---|---|
 | Kullanıcı başına proje | 20 | `POST /api/projects` |
 | Proje başına versiyon | 30 (en eskisi silinir) — yalnızca `storage_provider='postgres'` | versiyon yazımında |
-| Kaynak kod boyutu | 256 KB | istek gövdesi doğrulaması |
+| Sketch toplam boyutu (tüm dosyalar) | 256 KB | istek gövdesi doğrulaması |
+| Proje başına dosya sayısı | 20 | dosya ekleme |
 | Derleme / kullanıcı / saat | 60 | ide-api, Redis sayaç |
 | Derleme / IP / dakika | 5 | Cloudflare kuralı (backend.plan.md §5.3) |
 
@@ -222,15 +227,19 @@ espcode'da listeden seçer.
 GitHub karşılığı):
 ```
 1. Installation token üretilir (App private key + installation_id → ~1 saatlik token)
-2. GET /repos/{repo}/contents/{path}?ref={branch} → mevcut dosyanın sha'sı (varsa)
-3. PUT /repos/{repo}/contents/{path}
-   { message: "espcode: flash <fqbn> <timestamp>", content: base64(source),
+2. Projenin her dosyası için: GET /repos/{repo}/contents/{path}?ref={branch}
+   → mevcut dosyanın sha'sı (varsa)
+3. Her dosya için: PUT /repos/{repo}/contents/{path}
+   { message: "espcode: flash <fqbn> <timestamp>", content: base64(dosya içeriği),
      branch, sha: <2'deki sha veya yok> }
 ```
 
-**Dosya yolu:** Arduino sketch kuralına uyar — `<proje-adı>/<proje-adı>.ino` (klasör
-adı = dosya adı), böylece kullanıcı repo'yu yerelde klonlayıp Arduino IDE'de de
-açabilir.
+**Dosya yolu:** Arduino sketch kuralına uyar — `<proje-adı>/` klasörü altında, birincil
+`.ino` klasörle aynı adı taşır (`<proje-adı>/<proje-adı>.ino`), diğer dosyalar
+(`.ino`/`.cpp`/`.h`) kullanıcının verdiği adla yanına konur. Böylece kullanıcı repo'yu
+yerelde klonlayıp Arduino IDE'de de açabilir. Çok dosyalı commit tek atomik işlem değil
+— dosyalar sırayla yazılır; ortada kesilirse bir sonraki flash eksik kalanları tamamlar
+(içerik-adresli değil, idempotent).
 
 **Çakışma:** `PUT` sha uyuşmazlığından 409/422 dönerse otomatik merge yapılmaz — plan
 §4.3'teki "hangi sürümü tutayım?" felsefesiyle aynı: kullanıcıya "bu dosya GitHub'da
@@ -302,7 +311,7 @@ ile koşullu). Ayrı bir `/etc/hosts` subdomain simülasyonu gerekmiyor.
 
 | Uç | Not |
 |---|---|
-| `POST /api/compile` | Gövde: `{ source, fqbn, options, projectId? }` |
+| `POST /api/compile` | Gövde: `{ files: [{path, content}], fqbn, options, projectId? }` |
 | `GET /api/jobs/:id/stream` | SSE — `log`, `done`, `failed` |
 | `POST /api/decode` | `{ buildKey, addresses[] }` → çözülmüş backtrace |
 | `GET /api/boards` | Statik FQBN enum'u |
@@ -557,7 +566,7 @@ geri yükle → `.bin` indir. Bu zincirin tamamı çalışıyorsa Faz 6 bitmişt
 
 ### Faz 6.1 (GitHub depolama, opsiyonel)
 
-- Repo bağlama: proje `github`'a bağlanınca `source` alanı boş kalmalı, `storage_provider` güncellenmiş olmalı
+- Repo bağlama: proje `github`'a bağlanınca `files` alanı boş kalmalı, `storage_provider` güncellenmiş olmalı
 - Commit akışı: flash sonrası GitHub'da `<proje-adı>/<proje-adı>.ino` dosyası doğru içerikle oluşmalı/güncellenmeli
 - Sha çakışması: dosya GitHub'da elden değiştirilip tekrar flash edilince 409 kullanıcıya "üzerine yazayım mı?" olarak yansımalı
 - Bağlantı kopması: repo silindikten sonra `GET /api/projects/:id/versions` 404 yerine "bağlantı koptu" durumunu döndürmeli (ölü referans değil)
@@ -566,8 +575,6 @@ geri yükle → `.bin` indir. Bu zincirin tamamı çalışıyorsa Faz 6 bitmişt
 ---
 
 ## 12. Bu planın kapsamadıkları (bilinçli)
-
-- **Çoklu dosya projeleri** — tek `.ino` yeterli, ihtiyaç kanıtlanınca eklenir
 - **Kullanıcı kütüphanesi yükleme** — builder ağ izolasyonuyla temelden çelişir
 - **İşbirlikçi düzenleme** — CRDT altyapısı portföy ölçeğinde orantısız
 - **clangd/LSP** — statik tamamlama listesi (`frontend.plan.md` §8.4) ilk sürüm için yeter
