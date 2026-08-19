@@ -64,6 +64,7 @@ seçici göstermez ve sessizce başarısız olur. Bunu ayrı bir hata durumu ola
 | State | Zustand | Seri port global tekil kaynak; Context yeterli değil |
 | Kalıcılık | IndexedDB (`idb`) + OPFS | Proje dosyaları IDB, indirilen `.bin` OPFS |
 | Stil | Tailwind + CSS değişkenleri | Token sistemi Bölüm 11'de |
+| Bileşenler | **shadcn/ui** | Kaynak kodu projeye kopyalanan, headless (Base UI) tabanlı bileşenler — bağımlılık değil, düzenlenebilir kod. Kurulum: `npx shadcn@latest init --preset b2GVUt5DMm` (tweakcn preset, style: `base-maia`) |
 
 ### 2.1 Neden Monaco değil CodeMirror 6
 
@@ -594,6 +595,15 @@ offset haritaları, tek doygun mürekkep rengi. IDE'yi "canlı bir datasheet" ol
 Dark mode ayrı bir tema değil, aynı sistemin negatifi: `--stock: #0D1114`,
 `--ink: #DCE3E8`. Terminal ve editör her iki modda da koyu kalır — kod okuma yüzeyi
 sabit olmalı.
+
+**shadcn/ui ile uzlaştırma.** shadcn (tweakcn preset `b2GVUt5DMm`) kendi CSS
+değişken adlarını (`--background`, `--foreground`, `--primary`, `--radius` vb.)
+getiriyor. Bu isimler yukarıdaki `--stock/--ink/--rule/--muted/--signal/--alarm`
+setiyle çakışmıyor ama örtüşüyor — çözüm ikisini birleştirmek değil, shadcn'in
+değişkenlerini bu token setine **eşlemek**: `--background: var(--stock)`,
+`--foreground: var(--ink)`, `--primary: var(--signal)`, `--destructive: var(--alarm)`,
+`--border: var(--rule)`, `--muted-foreground: var(--muted)`. Tek kaynak of truth
+§11.1'deki tablo kalır; shadcn bileşenleri ona abone olur, tersi değil.
 
 ### 11.2 Tipografi
 

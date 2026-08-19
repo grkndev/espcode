@@ -35,14 +35,14 @@ export async function connectAndDetectChip(
     throw new SerialError("sync_failed", err instanceof Error ? err.message : undefined);
   }
 
+  // Tek seri port yazıcısını paylaşıyorlar — Promise.all ile eşzamanlı çağrılırsa
+  // "WritableStream is locked" hatası verir, sıralı çalışmak zorunda.
   const chip = loader.chip;
-  const [description, features, crystalFreqMHz, macAddress, flashSize] = await Promise.all([
-    chip.getChipDescription(loader),
-    chip.getChipFeatures(loader),
-    chip.getCrystalFreq(loader),
-    chip.readMac(loader),
-    loader.detectFlashSize(),
-  ]);
+  const description = await chip.getChipDescription(loader);
+  const features = await chip.getChipFeatures(loader);
+  const crystalFreqMHz = await chip.getCrystalFreq(loader);
+  const macAddress = await chip.readMac(loader);
+  const flashSize = await loader.detectFlashSize();
 
   return {
     connection: { loader, transport },
@@ -55,7 +55,23 @@ export interface FlashJob {
   address: number;
 }
 
-// frontend.plan.md §5.1 — writeFlash + after (hard reset → uygulamayı başlat)
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// esptool-js 0.6.1'in classic (UART) hard-reset yolu yalnızca setRTS(false)
+// çağırıyor — connect sonrası RTS zaten false olduğu için bu bir no-op, hiç
+// reset pulse'ı üretmiyor (writeFlash de reboot:false ile bitiriyor, bkz.
+// node_modules/esptool-js/lib/{esploader,reset}.js). Reset'i elle üretiyoruz:
+// EN'i düşür-yükselt, IO0/DTR'a hiç dokunma (frontend.plan.md §5.2'nin tersi).
+async function hardResetToApp(transport: Transport): Promise<void> {
+  await transport.setDTR(false);
+  await transport.setRTS(true);
+  await sleep(100);
+  await transport.setRTS(false);
+}
+
+// frontend.plan.md §5.1 — writeFlash + hard reset → uygulamayı başlat
 export async function flashFirmware(
   connection: Connection,
   job: FlashJob,
@@ -72,7 +88,7 @@ export async function flashFirmware(
       compress: true,
       reportProgress: (_fileIndex, written, total) => onProgress(written / total),
     });
-    await loader.after();
+    await hardResetToApp(transport);
   } catch (err) {
     throw new SerialError("write_failed", err instanceof Error ? err.message : undefined);
   } finally {

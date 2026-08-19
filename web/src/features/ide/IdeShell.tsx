@@ -136,7 +136,7 @@ export default function IdeShell() {
 
       {chipInfo && (
         <section className="rounded border border-[var(--rule)] p-4">
-          <h2 className="mb-3 text-xs uppercase tracking-wide text-[var(--muted)]">
+          <h2 className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">
             Çip bilgisi
           </h2>
           <dl className="grid grid-cols-2 gap-y-2 font-[var(--font-data)] text-sm">
@@ -152,11 +152,11 @@ export default function IdeShell() {
 
       {chipInfo && (
         <section className="flex flex-col gap-3 rounded border border-[var(--rule)] p-4">
-          <h2 className="text-xs uppercase tracking-wide text-[var(--muted)]">
+          <h2 className="text-xs uppercase tracking-wide text-muted-foreground">
             Firmware yükle
           </h2>
           <input type="file" accept=".bin" onChange={handleFile} disabled={flashing} />
-          <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
             Adres
             <input
               value={address}
@@ -191,10 +191,10 @@ export default function IdeShell() {
 
       {logLines.length > 0 && (
         <details className="rounded border border-[var(--rule)] p-4">
-          <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--muted)]">
+          <summary className="cursor-pointer text-xs uppercase tracking-wide text-muted-foreground">
             Günlük
           </summary>
-          <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap font-[var(--font-code)] text-xs text-[var(--muted)]">
+          <pre className="mt-2 max-h-48 overflow-y-auto whitespace-pre-wrap font-[var(--font-code)] text-xs text-muted-foreground">
             {logLines.join("")}
           </pre>
         </details>
@@ -206,7 +206,7 @@ export default function IdeShell() {
 function Field({ label, value }: { label: string; value: string }) {
   return (
     <>
-      <dt className="text-[var(--muted)]">{label}</dt>
+      <dt className="text-muted-foreground">{label}</dt>
       <dd className="text-[var(--ink)]">{value}</dd>
     </>
   );
@@ -224,7 +224,7 @@ function Banner({
       ? "border-[var(--alarm)] text-[var(--alarm)]"
       : tone === "ok"
         ? "border-[var(--signal)] text-[var(--signal)]"
-        : "border-[var(--muted)] text-[var(--muted)]";
+        : "border-muted-foreground text-muted-foreground";
   return (
     <div className={`rounded border px-4 py-3 text-sm ${toneClass}`}>{children}</div>
   );

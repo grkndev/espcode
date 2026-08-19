@@ -1,11 +1,14 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
-/* frontend.plan.md §11.1 — datasheet token seti */
+/* frontend.plan.md §11.1 — datasheet token seti, tek kaynak. shadcn'in
+   semantik değişkenleri (aşağıda) buna referans verir, tersi değil. */
 :root {
   --stock: #edf0f2;
   --ink: #10151a;
   --rule: #c3cdd4;
-  --muted: #6b7a85;
+  --ink-muted: #6b7a85; /* ikincil metin, pin etiketleri */
   --signal: #3d3bff;
   --alarm: #c8102e;
 
@@ -13,19 +16,95 @@
   --font-ui: var(--font-instrument), system-ui, sans-serif;
   --font-data: var(--font-martian), ui-monospace, monospace;
   --font-code: ui-monospace, "SF Mono", Menlo, monospace;
+  --font-sans: var(--font-instrument);
+  --font-heading: var(--font-bricolage);
+
+  /* shadcn/ui (tweakcn preset b2GVUt5DMm) eşlemesi */
+  --background: var(--stock);
+  --foreground: var(--ink);
+  --card: var(--stock);
+  --card-foreground: var(--ink);
+  --popover: var(--stock);
+  --popover-foreground: var(--ink);
+  --primary: var(--signal);
+  --primary-foreground: var(--stock);
+  --secondary: var(--rule);
+  --secondary-foreground: var(--ink);
+  --muted: var(--rule);
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--rule);
+  --accent-foreground: var(--ink);
+  --destructive: var(--alarm);
+  --destructive-foreground: var(--stock);
+  --border: var(--rule);
+  --input: var(--rule);
+  --ring: var(--signal);
+  --radius: 0.875rem;
+  --sidebar: var(--stock);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--signal);
+  --sidebar-primary-foreground: var(--stock);
+  --sidebar-accent: var(--rule);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--rule);
+  --sidebar-ring: var(--signal);
 }
 
+/* Dark mode ayrı bir tema değil, aynı sistemin negatifi (§11.1) — kaynak
+   tokenleri burada değiştirmek yeterli, shadcn değişkenleri var() ile
+   otomatik takip eder. Manuel tema anahtarı yok, bu yüzden .dark sınıfı
+   yerine tarayıcı/OS tercihine göre çalışıyor. */
 @media (prefers-color-scheme: dark) {
   :root {
     --stock: #0d1114;
     --ink: #dce3e8;
     --rule: #2a3238;
-    --muted: #7d8b95;
+    --ink-muted: #7d8b95;
   }
 }
 
-body {
-  background: var(--stock);
-  color: var(--ink);
-  font-family: var(--font-ui);
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
