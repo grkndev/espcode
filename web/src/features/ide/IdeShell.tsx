@@ -8,6 +8,7 @@ import { getChipInfo, flashFirmware, hasPsram } from "@/features/flash/flasher";
 import { describeSerialError } from "@/lib/serial/errors";
 import SerialTerminal, { type TerminalHandle } from "@/features/monitor/Terminal";
 import { LineBuffer } from "@/features/monitor/line-buffer";
+import Plotter, { type PlotterHandle } from "@/features/plotter/Plotter";
 
 // frontend.plan.md §5.3 — iki başarısız deneme sonrası manuel moda geç
 const MANUAL_MODE_THRESHOLD = 2;
@@ -46,18 +47,27 @@ export default function IdeShell() {
 
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const terminalRef = useRef<TerminalHandle>(null);
+  const plotterRef = useRef<PlotterHandle>(null);
   const lineBufferRef = useRef(new LineBuffer());
+  const pendingLineRef = useRef("");
 
   const isMonitoring = state === "monitoring";
 
   const appendLog = (line: string) => setLogLines((prev) => [...prev.slice(-199), line]);
 
   // Kart bağlıyken gelen tüm seri veri buraya akar — startMonitor()
-  // çağrılmadığı sürece SerialSession hiç okuma döngüsü başlatmaz.
+  // çağrılmadığı sürece SerialSession hiç okuma döngüsü başlatmaz. Terminal
+  // ham parçayı olduğu gibi alır; plotter tam satır ister, o yüzden burada
+  // ayrıca satıra bölünüyor (frontend.plan.md §7.1).
   useEffect(() => {
     return serialSession.subscribeData((chunk) => {
       terminalRef.current?.write(chunk);
       lineBufferRef.current.push(chunk);
+
+      pendingLineRef.current += chunk;
+      const lines = pendingLineRef.current.split(/\r\n|\r|\n/);
+      pendingLineRef.current = lines.pop() ?? "";
+      for (const line of lines) plotterRef.current?.pushLine(line);
     });
   }, []);
 
@@ -138,6 +148,7 @@ export default function IdeShell() {
       } else {
         terminalRef.current?.clear();
         lineBufferRef.current.clear();
+        plotterRef.current?.clear();
         await serialSession.startMonitor(baud);
       }
     } catch (err) {
@@ -337,6 +348,15 @@ export default function IdeShell() {
             >
               Gönder
             </button>
+          </div>
+
+          <div>
+            <h3 className="mb-2 text-xs uppercase tracking-wide text-muted-foreground">
+              Plotter
+            </h3>
+            <div className="rounded border border-[var(--rule)] p-2">
+              <Plotter ref={plotterRef} />
+            </div>
           </div>
 
           <div className="flex gap-2 text-xs text-muted-foreground">
