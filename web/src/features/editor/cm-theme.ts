@@ -4,12 +4,20 @@ import { tags } from "@lezer/highlight";
 
 // Tek tondan koyu editör yüzeyi, kabukla aynı zemin — ayrı bir beyaz kutu
 // değil (VSCode klonu yönü terk edildi, §11.5 güncellemesi).
+export const DEFAULT_FONT_SIZE = 13;
+
+// Editör ayarları panelinden Compartment ile canlı değiştirilebilsin diye
+// yazı tipi boyutu ana temadan ayrıldı — cmTheme'den SONRA extensions
+// dizisine eklenmesi gerekiyor ki `&` seçicisi burayı geçersiz kılsın.
+export function fontSizeTheme(px: number) {
+  return EditorView.theme({ "&": { fontSize: `${px}px` } });
+}
+
 export const cmTheme = EditorView.theme({
   "&": {
     color: "var(--vsc-editor-fg)",
     backgroundColor: "var(--vsc-editor-bg)",
     height: "100%",
-    fontSize: "13px",
   },
   ".cm-content": {
     fontFamily: "var(--font-code)",

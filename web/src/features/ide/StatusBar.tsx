@@ -2,7 +2,7 @@
 
 import { Loader2 } from "lucide-react";
 import type { SerialSessionState } from "@/features/serial/SerialSession";
-import type { BuildStatus } from "@/features/build/useBuild";
+import type { BuildStatus } from "@/features/build/useBuildStore";
 
 const STATE_LABEL: Record<SerialSessionState, string> = {
   disconnected: "Bağlı değil",

@@ -2,11 +2,9 @@
 
 import { useAuth } from "@/features/auth/useAuth";
 import LoginScreen from "@/features/auth/LoginScreen";
-import Dashboard from "@/features/dashboard/Dashboard";
+import ProfilePage from "@/features/profile/ProfilePage";
 
-// Editör artık ana sayfa değil (bkz. features/ide, app/editor/page.tsx) — burası
-// yalnızca giriş kapısı: girişsizken sadece login ekranı, girişliyken dashboard.
-export default function Home() {
+export default function Profile() {
   const auth = useAuth();
 
   if (auth.loading) {
@@ -19,5 +17,5 @@ export default function Home() {
     );
   }
   if (!auth.user) return <LoginScreen onLogin={auth.login} />;
-  return <Dashboard user={auth.user} onLogout={auth.logout} />;
+  return <ProfilePage user={auth.user} onLogout={auth.logout} />;
 }

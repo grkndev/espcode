@@ -5,6 +5,7 @@ export interface AuthUser {
   id: string;
   login: string;
   avatarUrl: string | null;
+  createdAt: string;
   quota: { projects: { used: number; max: number } };
 }
 

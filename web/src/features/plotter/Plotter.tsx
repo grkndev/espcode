@@ -140,7 +140,9 @@ const Plotter = forwardRef<PlotterHandle>(function Plotter(_props, ref) {
     [],
   );
 
-  return <div ref={containerRef} className="h-60 w-full" />;
+  // BottomPanel'deki TabsContent flex-1 ile gerçek yükseklik alıyor —
+  // önceden buradaki h-60 sabiti resizable panel'i doldurmuyordu.
+  return <div ref={containerRef} className="h-full w-full" />;
 });
 
 export default Plotter;

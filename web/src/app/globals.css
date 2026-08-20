@@ -2,6 +2,12 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* next-themes attribute="class" ile .dark ekliyor/kaldırıyor — Tailwind v4
+   varsayılanı prefers-color-scheme olduğu için bunu elle tanımlamak gerekiyor.
+   Yalnızca "datasheet" paletini (aşağıda) etkiler; --vsc-* bloğu bu
+   varyanttan tamamen bağımsız, hiçbir yerde .dark: kullanmıyor. */
+@custom-variant dark (&:is(.dark *));
+
 /* frontend.plan.md §11.1 — datasheet token seti, tek kaynak. shadcn'in
    semantik değişkenleri (aşağıda) buna referans verir, tersi değil. */
 :root {
@@ -52,15 +58,15 @@
 
 /* Dark mode ayrı bir tema değil, aynı sistemin negatifi (§11.1) — kaynak
    tokenleri burada değiştirmek yeterli, shadcn değişkenleri var() ile
-   otomatik takip eder. Manuel tema anahtarı yok, bu yüzden .dark sınıfı
-   yerine tarayıcı/OS tercihine göre çalışıyor. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --stock: #0d1114;
-    --ink: #dce3e8;
-    --rule: #2a3238;
-    --ink-muted: #7d8b95;
-  }
+   otomatik takip eder. next-themes (ThemeProvider, attribute="class")
+   Açık/Koyu/Sistem tercihini burada .dark sınıfına çeviriyor; "Sistem"
+   seçiliyken next-themes zaten prefers-color-scheme'i izleyip .dark'ı kendi
+   ekliyor/kaldırıyor, bu yüzden ayrı bir medya sorgusuna gerek yok. */
+.dark {
+  --stock: #0d1114;
+  --ink: #dce3e8;
+  --rule: #2a3238;
+  --ink-muted: #7d8b95;
 }
 
 /* IDE kabuğu — tek tondan (zinc) koyu taban + tek vurgu rengi. Sabit, temaya

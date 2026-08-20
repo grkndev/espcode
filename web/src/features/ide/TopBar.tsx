@@ -1,11 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronDown, Hammer, LogIn, Rocket, SquareTerminal } from "lucide-react";
+import { ChevronDown, Hammer, Rocket, SquareTerminal } from "lucide-react";
 import BoardPickerDialog from "./BoardPickerDialog";
 import { boardLabel } from "./board-match";
 import type { ChipInfo } from "@/features/serial/useSerialStore";
-import type { AuthUser } from "@/features/auth/useAuth";
 
 export interface TopBarProps {
   connected: boolean;
@@ -22,8 +21,7 @@ export interface TopBarProps {
   flashing: boolean;
   onCompile: () => void;
   onCompileAndFlash: () => void;
-  user: AuthUser | null;
-  onLogin: () => void;
+  onOpenCommandPalette: () => void;
 }
 
 export default function TopBar({
@@ -41,8 +39,7 @@ export default function TopBar({
   flashing,
   onCompile,
   onCompileAndFlash,
-  user,
-  onLogin,
+  onOpenCommandPalette,
 }: TopBarProps) {
   const busy = compiling || flashing;
   return (
@@ -66,6 +63,14 @@ export default function TopBar({
           />
           {connecting ? "Bağlanıyor…" : connected ? boardLabel(fqbn) : "Kart seçiniz"}
           <ChevronDown size={13} strokeWidth={2.25} className="text-[var(--vsc-fg-muted)]" />
+        </button>
+
+        <button
+          onClick={onOpenCommandPalette}
+          title="Komut paleti"
+          className="hidden items-center rounded-md px-1.5 py-1 text-[11px] font-medium text-[var(--vsc-fg-muted)] transition-colors hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg)] sm:flex"
+        >
+          <kbd className="font-[inherit]">⌘K</kbd>
         </button>
       </div>
 
@@ -101,24 +106,6 @@ export default function TopBar({
           <Rocket size={14} strokeWidth={2.25} />
           {compiling ? "Derleniyor…" : flashing ? "Yükleniyor…" : "Derle ve Yükle"}
         </button>
-
-        {user ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={user.avatarUrl ?? undefined}
-            alt={user.login}
-            title={user.login}
-            className="h-8 w-8 shrink-0 rounded-full border border-[var(--vsc-border)]"
-          />
-        ) : (
-          <button
-            onClick={onLogin}
-            title="GitHub ile giriş yap"
-            className="flex h-9 w-9 items-center justify-center rounded-md text-[var(--vsc-fg-muted)] transition-transform hover:text-[var(--vsc-fg)] active:scale-[0.94]"
-          >
-            <LogIn size={16} strokeWidth={2.25} />
-          </button>
-        )}
       </div>
 
       <BoardPickerDialog

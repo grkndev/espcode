@@ -3,16 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { InfoIcon, XIcon } from "lucide-react";
 import { checkSerialSupport } from "@/lib/serial/support";
 import { serialSession } from "@/features/serial/SerialSession";
 import { useSerialStore } from "@/features/serial/useSerialStore";
-import {
-  getChipInfo,
-  flashFirmware,
-  FLASH_STAGE_LABEL,
-  type FlashStage,
-} from "@/features/flash/flasher";
-import { useBuild } from "@/features/build/useBuild";
+import { getChipInfo, FLASH_STAGE_LABEL } from "@/features/flash/flasher";
+import { useBuildStore } from "@/features/build/useBuildStore";
 import { useAuth } from "@/features/auth/useAuth";
 import ProjectsPanel, { type PendingGithubInstall } from "@/features/projects/ProjectsPanel";
 import { useProjects } from "@/features/projects/useProjects";
@@ -39,6 +35,9 @@ import StatusBar from "./StatusBar";
 import BottomPanel, { type LineEnding } from "./BottomPanel";
 import ActivityBar, { type SidePanel } from "./ActivityBar";
 import SettingsPanel from "./SettingsPanel";
+import EditorSettingsPanel from "./EditorSettingsPanel";
+import CommandPalette from "./CommandPalette";
+import { DEFAULT_FONT_SIZE } from "@/features/editor/cm-theme";
 
 // frontend.plan.md §5.3 — iki başarısız deneme sonrası manuel moda geç
 const MANUAL_MODE_THRESHOLD = 2;
@@ -54,7 +53,7 @@ export default function IdeShell() {
   const support = checkSerialSupport();
   const { state, chipInfo, error, connecting, connect, setChipInfo, setError } =
     useSerialStore();
-  const build = useBuild();
+  const build = useBuildStore();
   const auth = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -64,14 +63,22 @@ export default function IdeShell() {
     null,
   );
 
-  const [fqbn, setFqbn] = useState(BOARDS[2].fqbn); // esp32:esp32:esp32s3
+  const [fqbn, setFqbn] = useState(BOARDS[0].fqbn); // esp32:esp32:esp32s3
   const [boardOptions, setBoardOptions] = useState<Record<string, string>>(() =>
-    defaultOptionValues(BOARDS[2].fqbn),
+    defaultOptionValues(BOARDS[0].fqbn),
   );
   const [sidePanel, setSidePanel] = useState<SidePanel | null>("library");
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [bottomTab, setBottomTab] = useState("monitor");
   const [boardDialogOpen, setBoardDialogOpen] = useState(false);
+
+  // Editör ayarları — EditorSettingsPanel'den okunur/yazılır, Editor.tsx'e
+  // CodeMirror Compartment'ları üzerinden akar. Kalıcı değil (sayfa
+  // yenilenince sıfırlanır) — bu turun kapsamı yalnızca canlı çalışması.
+  const [editorFontSize, setEditorFontSize] = useState(DEFAULT_FONT_SIZE);
+  const [editorLineWrap, setEditorLineWrap] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [boardHintDismissed, setBoardHintDismissed] = useState(false);
 
   // frontend.plan.md §3.2 — çoklu dosya sketch modeli
   const [files, setFiles] = useState<SketchFile[]>(createDefaultSketch);
@@ -81,17 +88,12 @@ export default function IdeShell() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [syncFailCount, setSyncFailCount] = useState(0);
 
-  const [flashing, setFlashing] = useState(false);
-  const [progress, setProgress] = useState<number | null>(null);
-  const [flashStage, setFlashStage] = useState<FlashStage | null>(null);
-
   const [baud, setBaud] = useState(115200);
   const [lineEnding, setLineEnding] = useState<LineEnding>("lf");
   const [sendValue, setSendValue] = useState("");
   const [sendHistory, setSendHistory] = useState<string[]>([]);
   const historyIndexRef = useRef<number | null>(null);
 
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const terminalRef = useRef<TerminalHandle>(null);
   const plotterRef = useRef<PlotterHandle>(null);
   const pendingLineRef = useRef("");
@@ -124,24 +126,6 @@ export default function IdeShell() {
   useEffect(() => {
     if (error) toast.error("Hata", { description: error });
   }, [error]);
-
-  useEffect(() => {
-    if (!flashing) return;
-    const guard = (e: BeforeUnloadEvent) => {
-      e.preventDefault();
-      e.returnValue = "";
-    };
-    window.addEventListener("beforeunload", guard);
-    navigator.wakeLock?.request("screen").then(
-      (lock) => (wakeLockRef.current = lock),
-      () => {},
-    );
-    return () => {
-      window.removeEventListener("beforeunload", guard);
-      wakeLockRef.current?.release().catch(() => {});
-      wakeLockRef.current = null;
-    };
-  }, [flashing]);
 
   // Editör artık ana sayfa değil (app/page.tsx dashboard'a çevrildi) — girişsiz
   // buraya doğrudan URL ile gelen kullanıcıyı dashboard/login kapısına yolla.
@@ -188,6 +172,20 @@ export default function IdeShell() {
     router.replace(`/editor?${next.toString()}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnızca URL'deki github/installation/project param'ları değiştiğinde tekrar çalışsın
   }, [searchParams]);
+
+  // Komut paleti — cmdk zaten BoardPickerDialog için kurulu, burada global
+  // ⌘K/Ctrl+K ile açılıyor. Tarayıcının kendi Ctrl+K'sı (adres çubuğu arama)
+  // bazı tarayıcılarda çakışabildiği için preventDefault ediliyor.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   async function handleConnect() {
     setError(null);
@@ -290,83 +288,27 @@ export default function IdeShell() {
   }
 
   // Yalnızca derle (Arduino IDE'nin "Verify" karşılığı) — kartı yazmaz,
-  // sadece hataları/uyarıları editöre iliştirir.
+  // sadece hataları/uyarıları editöre iliştirir. Toast/bildirim artık
+  // useBuildStore içinde — Dashboard'a geçilse bile çalışmaya devam eder ve
+  // sonucu her sayfada bildirir (bkz. useBuildStore.ts). .catch(() => {})
+  // yalnızca zaten toast'lanmış hatanın "unhandled rejection" olarak
+  // konsola düşmesini engelliyor.
   async function handleCompile() {
     setTerminalOpen(true);
     setBottomTab("build");
-    setLogLines([]); // her işlemde derleme çıktısı sıfırdan başlasın
-    try {
-      const result = await build.compile(files, fqbn, boardOptions);
-      toast.success("Derleme tamamlandı", {
-        description: `${result.flashBytes.toLocaleString("tr-TR")} bayt`,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Derleme başarısız";
-      toast.error("Derleme başarısız", { description: message });
-    }
+    await build.compile(files, fqbn, boardOptions).catch(() => {});
   }
 
   // frontend.plan.md §8 — Faz 5: derle (POST /api/compile + SSE) → merged.bin'i
-  // 0x0'a yaz.
+  // 0x0'a yaz. Orkestrasyon (monitör devri, flash, hata/başarı toast'ı)
+  // useBuildStore.compileAndFlash içinde — sayfadan ayrılınca durmaz.
   async function handleCompileAndFlash() {
-    const port = serialSession.getPort();
-    if (!port) return;
     setTerminalOpen(true);
     setBottomTab("build");
-    setLogLines([]); // her işlemde derleme çıktısı sıfırdan başlasın
-
     // §6 "Flash sonrası versiyon kaydı" — yalnızca girişliyken ve aktif proje
     // varken; "Derle" (yalnızca doğrula) bu satırı hiç göndermiyor.
     const projectId = auth.user && activeProjectId ? activeProjectId : undefined;
-
-    let result;
-    try {
-      result = await build.compile(files, fqbn, boardOptions, projectId);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Derleme başarısız";
-      toast.error("Derleme başarısız", { description: message });
-      return;
-    }
-
-    setFlashing(true);
-    // frontend.plan.md §4.1 — monitör açıkken flash: devri kullanıcıya
-    // göstermeden durdur → yaz → geri başlat.
-    const wasMonitoring = isMonitoring;
-    if (wasMonitoring) await serialSession.stopMonitor();
-    serialSession.beginFlashing();
-
-    try {
-      await flashFirmware(
-        port,
-        { data: result.binary, address: 0 },
-        setProgress,
-        appendLog,
-        setFlashStage,
-      );
-      toast.success("Yükleme tamamlandı", {
-        description:
-          projectId && result.versionSaved === "ok"
-            ? "Kart yeniden başlatıldı. Proje kaydedildi."
-            : "Kart yeniden başlatıldı.",
-      });
-      if (projectId && result.versionSaved && result.versionSaved !== "ok") {
-        const description =
-          result.versionSaved === "conflict"
-            ? "GitHub'da bu dosyalar elden değişmiş — Commit'le ile üzerine yazmayı onaylaman gerekiyor."
-            : result.versionSaved === "link_broken"
-              ? "GitHub bağlantısı koptu — projeyi yeniden bağla."
-              : "Kod kaydedilemedi, ama kart yazıldı.";
-        toast.warning("Proje kaydedilemedi", { description });
-      }
-    } catch (err) {
-      toast.error("Yükleme başarısız", { description: describeSerialError(err) });
-    } finally {
-      setFlashing(false);
-      setProgress(null);
-      setFlashStage(null);
-      serialSession.endFlashing();
-      if (wasMonitoring) await serialSession.startMonitor(baud).catch(() => {});
-    }
+    await build.compileAndFlash(files, fqbn, boardOptions, projectId, baud);
   }
 
   function handleClearMonitor() {
@@ -420,18 +362,39 @@ export default function IdeShell() {
         historyIndexRef.current === null ? sendHistory.length - 1 : Math.max(0, historyIndexRef.current - 1);
       historyIndexRef.current = idx;
       setSendValue(sendHistory[idx]);
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (historyIndexRef.current === null) return;
+      const idx = historyIndexRef.current + 1;
+      if (idx >= sendHistory.length) {
+        // en sona geldi — boş girişe dön (terminallerin çoğunun davranışı)
+        historyIndexRef.current = null;
+        setSendValue("");
+        return;
+      }
+      historyIndexRef.current = idx;
+      setSendValue(sendHistory[idx]);
     }
   }
 
-  // Girişsizken yönlendirme (yukarıdaki effect) tamamlanana kadar tam IDE
-  // kabuğunun bir anlığına çakmasını önle.
-  if (auth.loading) return null;
-  if (!auth.user) return null;
+  // Girişsizken yönlendirme (yukarıdaki effect) tetiklenene kadar çıplak
+  // beyaz ekran yerine kabukla aynı zeminde sessiz bir iskelet gösterilir.
+  if (auth.loading || !auth.user) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-[var(--vsc-activitybar)]">
+        <span className="animate-pulse [font-family:var(--font-display)] text-2xl font-semibold tracking-tight text-[var(--vsc-fg-muted)]">
+          espcode
+        </span>
+      </div>
+    );
+  }
 
   if (!support.ok) {
     return (
-      <div className="mx-auto max-w-2xl p-8">
-        <div className="rounded border border-[var(--vsc-fg-muted)] px-4 py-3 text-sm text-[var(--vsc-fg-muted)]">
+      <div className="flex h-dvh items-center justify-center bg-[var(--vsc-activitybar)] p-8">
+        <div className="max-w-md rounded-md border border-[var(--vsc-border)] bg-[var(--vsc-sidebar)] px-4 py-3 text-sm text-[var(--vsc-fg-muted)]">
           {support.reason === "no_api"
             ? "Bu tarayıcı karta yazmayı desteklemiyor. Chrome, Edge veya Firefox 151+ kullan — ya da .bin dosyasını indirip kendi aracınla yaz."
             : "Karta yazmak için güvenli bağlantı gerekiyor. Adresi https:// ile aç."}
@@ -441,7 +404,12 @@ export default function IdeShell() {
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    // "dark" sınıfı burada uygulama-geneli tema tercihinden bağımsız —
+    // editör kabuğu (--vsc-*) sabit koyu (bkz. globals.css), içindeki
+    // shadcn bileşenleri (Select, Dialog, Command, Switch, Popover) da
+    // "datasheet" paletini her zaman koyu değerleriyle okusun diye kilitli.
+    // Kullanıcı AccountMenu'den "Açık" seçse bile editör alanı değişmez.
+    <div className="dark flex h-dvh flex-col">
       <TopBar
         fqbn={fqbn}
         chipInfo={chipInfo}
@@ -454,15 +422,40 @@ export default function IdeShell() {
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
         compiling={build.status === "compiling"}
-        flashing={flashing}
+        flashing={build.flashing}
         onCompile={handleCompile}
         onCompileAndFlash={handleCompileAndFlash}
-        user={auth.user}
-        onLogin={auth.login}
+        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
+      {/* Kart hiç bağlanmadıysa engelleyici olmayan, kapatılabilir bir
+          ipucu — önceden bu durum tamamen görünmezdi (yalnızca disabled
+          butonlar). */}
+      {!isConnected && !boardHintDismissed && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--vsc-border)] bg-[var(--vsc-selected)]/50 px-4 py-1.5 text-xs text-[var(--vsc-fg-muted)]">
+          <InfoIcon size={13} strokeWidth={2.25} className="shrink-0" />
+          <span className="flex-1">
+            Karta bağlanmak için üstteki &quot;Kart seçiniz&quot;e tıkla.
+          </span>
+          <button
+            onClick={() => setBoardHintDismissed(true)}
+            title="Kapat"
+            className="shrink-0 rounded p-0.5 text-[var(--vsc-fg-muted)] hover:text-[var(--vsc-fg)]"
+          >
+            <XIcon size={13} strokeWidth={2.25} />
+          </button>
+        </div>
+      )}
+
       <div className="flex min-h-0 flex-1">
-        <ActivityBar active={sidePanel} onSelect={handleSelectPanel} />
+        <ActivityBar
+          active={sidePanel}
+          onSelect={handleSelectPanel}
+          onGoDashboard={() => router.push("/")}
+          user={auth.user}
+          onLogin={auth.login}
+          onLogout={auth.logout}
+        />
 
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           {sidePanel && (
@@ -499,6 +492,14 @@ export default function IdeShell() {
                     onOptionChange={handleOptionChange}
                   />
                 )}
+                {sidePanel === "editor" && (
+                  <EditorSettingsPanel
+                    fontSize={editorFontSize}
+                    onFontSizeChange={setEditorFontSize}
+                    lineWrap={editorLineWrap}
+                    onLineWrapChange={setEditorLineWrap}
+                  />
+                )}
               </ResizablePanel>
               <ResizableHandle withHandle />
             </>
@@ -525,6 +526,8 @@ export default function IdeShell() {
                       diagnostics={build.diagnostics.filter(
                         (d) => d.file === activeFile.path.split("/").pop(),
                       )}
+                      fontSize={editorFontSize}
+                      lineWrap={editorLineWrap}
                     />
                   </div>
                 </div>
@@ -540,7 +543,7 @@ export default function IdeShell() {
                       terminalRef={terminalRef}
                       plotterRef={plotterRef}
                       isMonitoring={isMonitoring}
-                      canMonitor={isConnected && !flashing}
+                      canMonitor={isConnected && !build.flashing}
                       baud={baud}
                       onBaudChange={handleBaudChange}
                       onToggleMonitor={handleToggleMonitor}
@@ -566,8 +569,25 @@ export default function IdeShell() {
         fqbn={fqbn}
         baud={baud}
         buildStatus={build.status}
-        flashProgress={progress}
-        flashStageLabel={flashStage ? FLASH_STAGE_LABEL[flashStage] : null}
+        flashProgress={build.progress}
+        flashStageLabel={build.flashStage ? FLASH_STAGE_LABEL[build.flashStage] : null}
+      />
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        onOpenChange={setCommandPaletteOpen}
+        isConnected={isConnected}
+        busy={build.status === "compiling" || build.flashing}
+        isMonitoring={isMonitoring}
+        files={files}
+        activePath={activePath}
+        onCompile={handleCompile}
+        onCompileAndFlash={handleCompileAndFlash}
+        onToggleMonitor={handleToggleMonitor}
+        onPickBoard={() => setBoardDialogOpen(true)}
+        onSelectPanel={setSidePanel}
+        onOpenFile={handleOpenFile}
+        onGoDashboard={() => router.push("/")}
       />
     </div>
   );

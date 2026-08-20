@@ -3,6 +3,7 @@ import { Bricolage_Grotesque, Instrument_Sans, Martian_Mono } from "next/font/go
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
+import { ThemeProvider } from "@/components/theme-provider";
 
 const bricolage = Bricolage_Grotesque({
   variable: "--font-bricolage",
@@ -28,6 +29,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="tr"
+      suppressHydrationWarning
       className={cn(
         "h-full antialiased",
         bricolage.variable,
@@ -36,8 +38,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       )}
     >
       <body className="min-h-full flex flex-col">
-        {children}
-        <Toaster theme="dark" position="bottom-right" richColors />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          {children}
+          <Toaster position="bottom-right" richColors />
+        </ThemeProvider>
       </body>
     </html>
   );

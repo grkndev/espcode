@@ -75,6 +75,7 @@ export class AuthController {
       id: record.id,
       login: record.login,
       avatarUrl: record.avatarUrl,
+      createdAt: record.createdAt,
       quota: { projects: { used: projectCount, max: MAX_PROJECTS_PER_USER } },
     };
   }

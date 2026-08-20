@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { EditorView, keymap } from "@codemirror/view";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { basicSetup } from "codemirror";
 import { cpp } from "@codemirror/lang-cpp";
 import { autocompletion } from "@codemirror/autocomplete";
 import { indentWithTab } from "@codemirror/commands";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
-import { cmTheme, cmSyntaxHighlight } from "./cm-theme";
+import { cmTheme, cmSyntaxHighlight, fontSizeTheme, DEFAULT_FONT_SIZE } from "./cm-theme";
 import arduinoCompletionSource from "./arduino-completions";
 import { toCmDiagnostics } from "./diagnostics";
 import type { Diagnostic } from "@/features/build/parse-gcc-output";
@@ -17,15 +17,30 @@ export interface EditorProps {
   value: string;
   onChange: (value: string) => void;
   diagnostics?: Diagnostic[];
+  /** Editör ayarları panelinden gelir — Compartment ile canlı uygulanır. */
+  fontSize?: number;
+  lineWrap?: boolean;
 }
 
-export default function Editor({ value, onChange, diagnostics }: EditorProps) {
+export default function Editor({
+  value,
+  onChange,
+  diagnostics,
+  fontSize = DEFAULT_FONT_SIZE,
+  lineWrap = false,
+}: EditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
+
+  // Hiçbiri Compartment'a alınmadan önce her ayar değişikliği tüm editörün
+  // remount olmasını (undo geçmişinin/imlecin kaybolmasını) gerektiriyordu —
+  // yazı tipi boyutu ve satır kaydırma artık kendi Compartment'larında.
+  const [fontSizeCompartment] = useState(() => new Compartment());
+  const [lineWrapCompartment] = useState(() => new Compartment());
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -36,6 +51,8 @@ export default function Editor({ value, onChange, diagnostics }: EditorProps) {
         basicSetup,
         cpp(),
         cmTheme,
+        fontSizeCompartment.of(fontSizeTheme(fontSize)),
+        lineWrapCompartment.of(lineWrap ? EditorView.lineWrapping : []),
         cmSyntaxHighlight,
         lintGutter(),
         // basicSetup'ın varsayılan autocompletion'ı üzerine yazıyor —
@@ -57,6 +74,18 @@ export default function Editor({ value, onChange, diagnostics }: EditorProps) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: fontSizeCompartment.reconfigure(fontSizeTheme(fontSize)),
+    });
+  }, [fontSize, fontSizeCompartment]);
+
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: lineWrapCompartment.reconfigure(lineWrap ? EditorView.lineWrapping : []),
+    });
+  }, [lineWrap, lineWrapCompartment]);
 
   // Dışarıdan değer değişirse (ör. versiyon geri yükleme) editörü senkronla —
   // kendi onChange'inden gelen döngüyü önlemek için doc karşılaştırması yapılır.

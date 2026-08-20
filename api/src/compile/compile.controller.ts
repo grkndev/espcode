@@ -1,4 +1,4 @@
-import { Body, Controller, Param, Post, Query, Sse } from '@nestjs/common';
+import { Body, Controller, Param, Post, Sse } from '@nestjs/common';
 import type { MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import { CompileService } from './compile.service';
@@ -20,19 +20,12 @@ export class CompileController {
     return this.compileService.compile(dto, user?.id ?? null);
   }
 
-  // frontend.plan.md §8.2 — SSE, ?buildKey= başarı durumunda cache'e yazmak için
+  // frontend.plan.md §8.2 — SSE. projectId/userId artık job'ın kendi verisinde
+  // taşınıyor (bkz. compile.service.ts), bu yüzden burada query param/oturum
+  // gerekmiyor — hangi istemci izlerse izlesin aynı, önceden hazırlanmış
+  // sonucu okur.
   @Sse('jobs/:id/stream')
-  stream(
-    @Param('id') id: string,
-    @Query('buildKey') buildKey: string | undefined,
-    @Query('projectId') projectId: string | undefined,
-    @CurrentUser() user: RequestUser | null,
-  ): Observable<MessageEvent> {
-    return this.compileService.streamJob(
-      id,
-      buildKey ?? '',
-      user?.id ?? null,
-      projectId,
-    );
+  stream(@Param('id') id: string): Observable<MessageEvent> {
+    return this.compileService.streamJob(id);
   }
 }
