@@ -9,6 +9,8 @@ import { serialSession } from "@/features/serial/SerialSession";
 import { useSerialStore } from "@/features/serial/useSerialStore";
 import { getChipInfo, FLASH_STAGE_LABEL } from "@/features/flash/flasher";
 import { useBuildStore } from "@/features/build/useBuildStore";
+import { apiFetch } from "@/lib/api-config";
+import { downloadBlob } from "@/lib/download-file";
 import { useAuth } from "@/features/auth/useAuth";
 import ProjectsPanel, { type PendingGithubInstall } from "@/features/projects/ProjectsPanel";
 import { useProjects } from "@/features/projects/useProjects";
@@ -31,6 +33,7 @@ import {
   removeFile,
 } from "@/features/editor/sketch-files";
 import { loadDraft, saveDraft, clearDraft, draftsEqual, type Draft } from "@/features/editor/local-draft";
+import { buildSketchZip } from "@/features/editor/sketch-zip";
 import TopBar from "./TopBar";
 import { BOARDS } from "./board-match";
 import { defaultOptionValues } from "./board-options";
@@ -413,6 +416,32 @@ export default function IdeShell() {
     await build.compileAndFlash(files, fqbn, boardOptions, libraries, projectId, baud);
   }
 
+  // builds.controller.ts: 302 → imzalı, 5 dk ömürlü /api/artifacts/:key
+  // URL'ine yönlendiriyor. window.location.href ile tam sayfa navigasyon
+  // yerine fetch+blob kullanılıyor — hem başarısızlıkta toast'layabilmek
+  // hem de bazı ortamlarda indirmeyi tetikleyen navigasyonların sessizce
+  // engellenebilmesi ihtimalini ortadan kaldırmak için (bkz. download-file.ts).
+  async function handleDownloadBin() {
+    if (!build.lastBuildKey) return;
+    try {
+      const res = await apiFetch(`/api/builds/${build.lastBuildKey}/download?asset=bin`);
+      if (!res.ok) throw new Error(`indirilemedi (${res.status})`);
+      downloadBlob(await res.blob(), `${activeProject?.name ?? "sketch"}.bin`);
+    } catch (err) {
+      toast.error("İndirme başarısız", { description: err instanceof Error ? err.message : undefined });
+    }
+  }
+
+  // .ino + (kütüphane varsa) sketch.yaml — Arduino IDE'nin klasör kuralı
+  // gereği tek dosya bile olsa zip (bkz. sketch-zip.ts). Şu an editörde
+  // görünen hâli indirir (aktif projenin son commit'i değil) — kaydedilmemiş
+  // değişiklikler dahil.
+  function handleDownloadSketch() {
+    const name = activeProject?.name ?? "sketch";
+    const zip = buildSketchZip(files, fqbn, libraries, name);
+    downloadBlob(new Blob([zip as BlobPart], { type: "application/zip" }), `${name}.zip`);
+  }
+
   function handleClearMonitor() {
     terminalRef.current?.clear();
     plotterRef.current?.clear();
@@ -527,6 +556,9 @@ export default function IdeShell() {
         flashing={build.flashing}
         onCompile={handleCompile}
         onCompileAndFlash={handleCompileAndFlash}
+        buildKey={build.lastBuildKey}
+        onDownloadBin={handleDownloadBin}
+        onDownloadSketch={handleDownloadSketch}
       />
 
       {/* Kart hiç bağlanmadıysa engelleyici olmayan, kapatılabilir bir

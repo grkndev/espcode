@@ -43,6 +43,11 @@ interface BuildStoreState {
   progress: number | null;
   flashStage: FlashStage | null;
   notifications: NotificationEntry[];
+  // Son başarılı derlemenin build key'i — TopBar'daki ".bin indir" butonu
+  // GET /api/builds/:key/download?asset=bin'e bunu geçiyor. Yeni bir derleme
+  // başlarken sıfırlanmıyor: eski binary hâlâ geçerli/indirilebilir, yalnızca
+  // yeni bir derleme BAŞARIYLA bitince güncelleniyor.
+  lastBuildKey: string | null;
 
   compile: (
     files: SketchFile[],
@@ -101,6 +106,7 @@ export const useBuildStore = create<BuildStoreState>()(
         progress: null,
         flashStage: null,
         notifications: [],
+        lastBuildKey: null,
 
         compile: async (files, fqbn, options, libraries, projectId, opts) => {
           const notifyOnSuccess = opts?.notifyOnSuccess ?? true;
@@ -141,7 +147,7 @@ export const useBuildStore = create<BuildStoreState>()(
           const data = await res.json();
 
           function finish(result: BuildResult): BuildResult {
-            set({ status: "done", diagnostics: parseDiagnostics(get().log) });
+            set({ status: "done", diagnostics: parseDiagnostics(get().log), lastBuildKey: result.buildKey });
             if (notifyOnSuccess) {
               const description = `${result.flashBytes.toLocaleString("tr-TR")} bayt`;
               toast.success("Derleme tamamlandı", { description });
@@ -272,10 +278,12 @@ export const useBuildStore = create<BuildStoreState>()(
     },
     {
       name: "espcode-notifications",
-      // yalnızca bildirim geçmişi kalıcı — status/log/flashing gibi anlık
-      // alanlar sayfa yenilenince yanlışlıkla "hâlâ sürüyor" görünmesin diye
-      // persist edilmez.
-      partialize: (state) => ({ notifications: state.notifications }),
+      // yalnızca bildirim geçmişi VE son build key kalıcı — status/log/
+      // flashing gibi anlık alanlar sayfa yenilenince yanlışlıkla "hâlâ
+      // sürüyor" görünmesin diye persist edilmez. lastBuildKey ayrık: artifact
+      // sunucuda kalıcı olduğu için (bkz. artifact-store.service.ts, TTL yok)
+      // sayfa yenilenince ".bin indir" butonunun devre dışı kalması gereksiz.
+      partialize: (state) => ({ notifications: state.notifications, lastBuildKey: state.lastBuildKey }),
     },
   ),
 );
