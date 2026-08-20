@@ -3,10 +3,23 @@ name: espcode
 networks:
   ide-net:
     internal: true
+  # Üretimde nginx'in bulunduğu proxy-net'in yerini tutuyor (henüz kurulmadı).
+  # internal:true DEĞİL — ide-api'nin portu host'a bu ağ üzerinden yayınlanıyor;
+  # internal ağda port publish hiç çalışmıyor (host'a iki yönlü de kapalı).
+  edge-net:
+  # master.plan.md §7 — üründe "mevcut Postgres instance"in bulunduğu ağın
+  # yerini tutuyor; yerelde kendi tek amaçlı Postgres konteynerimiz var.
+  # ide-builder KESİNLİKLE bu ağa katılmaz (ide-net izolasyonu bozulmaz).
+  db-net:
 
 volumes:
   ide_toolchain:
   ide_buildcache:
+  pg_data:
+  # R2 henüz bağlı değil — imzalı-URL sözleşmesini koruyan yerel disk stand-in
+  # (backend.plan.md §6.2 ile aynı içerik-adresli anahtar, gerçek R2'ye
+  # geçişte yalnızca artifact-store.ts'in içi değişir).
+  ide_artifacts:
 
 services:
   redis-jobs:
@@ -64,3 +77,79 @@ services:
       ARDUINO_BUILD_CACHE_PATH: /var/cache/arduino
       BUILD_TIMEOUT_SEC: "120"
       COMPILE_JOBS: "2"
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: espcode
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: espcode
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [db-net]
+    # yalnızca yerel geliştirme kolaylığı — host'tan `prisma migrate dev`
+    # çalıştırabilmek için. Üründe bu satır kalkar (mevcut Postgres, host
+    # dışa açık değil).
+    ports: ["5432:5432"]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U espcode -d espcode"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  ide-api:
+    build: ./api
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis-jobs: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+    mem_limit: 512m # 384m → 512m — Prisma client + pg pool (master.plan.md §7)
+    memswap_limit: 512m
+    cpus: "0.5"
+    pids_limit: 128
+    networks: [ide-net, edge-net, db-net]
+    # nginx/proxy-net henüz yok (Faz 5'in bu aşaması) — yerel test için
+    # doğrudan host'a açık. nginx gelince bu satır kalkar.
+    ports: ["3001:3000"]
+    volumes:
+      - ide_artifacts:/var/lib/espcode/artifacts
+      # Faz 6.1 — GitHub App private key. Prod'da gerçek docker secret olur;
+      # yerelde tüm secrets/'ı salt-okunur bağlıyoruz — dosya adı kullanıcının
+      # GitHub App'ten indirdiği isimle kalır, GITHUB_APP_PRIVATE_KEY_PATH
+      # (.env) tam yolu gösterir (bkz. .env.example).
+      - ./secrets:/run/secrets:ro
+    environment:
+      REDIS_URL: redis://:${REDIS_JOBS_PASSWORD}@redis-jobs:6379/0
+      # APP_ORIGIN her zaman frontend'in gerçekte açıldığı adres (ngrok
+      # tünellenmez, yalnızca API tünellenir — bkz. GITHUB_CALLBACK_URL).
+      # localtest.me DEĞİL — Next dev server'ın kendi JS chunk'larını/HMR
+      # socket'ini yalnızca localhost/127.0.0.1 origin'lerine açar
+      # (allowedDevOrigins), başka her host'ta sayfa boş kalır.
+      APP_ORIGIN: http://localhost:3010
+      DATABASE_URL: postgresql://espcode:${PG_PASSWORD}@postgres:5432/espcode
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      # GitHub localhost + portu kabul ediyor (localtest.me + portu reddediyor
+      # — "enter valid URI"; port'a yalnızca literal "localhost"/"127.0.0.1"
+      # için izin veriyor, denendi). ngrok/localtest.me KULLANMA: frontend
+      # (localhost:3010) ve API (localhost:3001) böylece aynı site sayılıyor
+      # (SameSite portu saymaz) — tarayıcının 3. taraf çerez engeli (Brave
+      # Shields, Chrome Privacy Sandbox) devreye girmiyor. ngrok denendiğinde
+      # SameSite=None ile bile çerez cross-site fetch'e hiç eklenmiyordu.
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-http://localhost:3001/api/auth/github/callback}
+      SESSION_SECRET: ${SESSION_SECRET}
+      # §4.4 — yerel geliştirmede apex-domain kısıtı yok, cookie Domain
+      # attribute'u boş bırakılır (host-only cookie).
+      COOKIE_DOMAIN: ""
+      # Aynı site (yukarıya bkz) → SameSite=Lax + Secure kapalı yeterli.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      ARTIFACT_DIR: /var/lib/espcode/artifacts
+      ARTIFACT_SIGN_TTL_SEC: "300"
+      # Faz 6.1 — GitHub App (§3.1), kimlik OAuth'undan ayrı yetkilendirme.
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG}
+      GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH}

@@ -7,13 +7,26 @@ function makeTerminal(onLog?: (line: string) => void): IEspLoaderTerminal {
   return {
     clean: () => {},
     write: (data) => onLog?.(data),
-    writeLine: (data) => onLog?.(data),
+    // esploader.write()'ın kendisi withNewline=true iken writeLine'ı çağırır
+    // (bkz. node_modules/esptool-js/lib/esploader.js) — satır sonunu KENDİSİ
+    // eklemiyor, terminal implementasyonundan bekliyor. Eklemezsek art arda
+    // gelen her satır aynı satıra yapışıyordu.
+    writeLine: (data) => onLog?.(data + "\n"),
   };
 }
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+export type FlashStage = "connecting" | "syncing" | "writing" | "resetting";
+
+export const FLASH_STAGE_LABEL: Record<FlashStage, string> = {
+  connecting: "Bağlanılıyor",
+  syncing: "Senkronize ediliyor",
+  writing: "Flash'a yazılıyor",
+  resetting: "Yeniden başlatılıyor",
+};
 
 // esptool-js 0.6.1'in classic (UART) hard-reset yolu yalnızca setRTS(false)
 // çağırıyor — connect sonrası RTS zaten false olduğu için bu bir no-op, hiç
@@ -31,7 +44,9 @@ async function withEspLoader<T>(
   port: SerialPort,
   onLog: ((line: string) => void) | undefined,
   fn: (loader: ESPLoader, transport: Transport) => Promise<T>,
+  onStage?: (stage: FlashStage) => void,
 ): Promise<T> {
+  onStage?.("connecting");
   const transport = new Transport(port, false);
   const loader = new ESPLoader({
     transport,
@@ -40,6 +55,7 @@ async function withEspLoader<T>(
   });
 
   try {
+    onStage?.("syncing");
     await loader.main();
   } catch (err) {
     await transport.disconnect().catch(() => {});
@@ -51,6 +67,7 @@ async function withEspLoader<T>(
   } finally {
     // İşin sonunda çip her zaman gerçek uygulamaya dönüp portu bırakır —
     // esptool stub'ında asılı kalmaz, monitör devralabilir (§4.1 port devri).
+    onStage?.("resetting");
     await hardResetToApp(transport);
     await transport.disconnect();
   }
@@ -87,22 +104,29 @@ export async function flashFirmware(
   job: FlashJob,
   onProgress: (fraction: number) => void,
   onLog?: (line: string) => void,
+  onStage?: (stage: FlashStage) => void,
 ): Promise<void> {
-  await withEspLoader(port, onLog, async (loader) => {
-    try {
-      await loader.writeFlash({
-        fileArray: [{ data: job.data, address: job.address }],
-        flashMode: "keep",
-        flashFreq: "keep",
-        flashSize: "keep",
-        eraseAll: false,
-        compress: true,
-        reportProgress: (_fileIndex, written, total) => onProgress(written / total),
-      });
-    } catch (err) {
-      throw new SerialError("write_failed", err instanceof Error ? err.message : undefined);
-    }
-  });
+  await withEspLoader(
+    port,
+    onLog,
+    async (loader) => {
+      onStage?.("writing");
+      try {
+        await loader.writeFlash({
+          fileArray: [{ data: job.data, address: job.address }],
+          flashMode: "keep",
+          flashFreq: "keep",
+          flashSize: "keep",
+          eraseAll: false,
+          compress: true,
+          reportProgress: (_fileIndex, written, total) => onProgress(written / total),
+        });
+      } catch (err) {
+        throw new SerialError("write_failed", err instanceof Error ? err.message : undefined);
+      }
+    },
+    onStage,
+  );
 }
 
 export function hasPsram(features: string[]): boolean {

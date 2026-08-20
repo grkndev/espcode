@@ -7,15 +7,19 @@ import { basicSetup } from "codemirror";
 import { cpp } from "@codemirror/lang-cpp";
 import { autocompletion } from "@codemirror/autocomplete";
 import { indentWithTab } from "@codemirror/commands";
+import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { cmTheme, cmSyntaxHighlight } from "./cm-theme";
 import arduinoCompletionSource from "./arduino-completions";
+import { toCmDiagnostics } from "./diagnostics";
+import type { Diagnostic } from "@/features/build/parse-gcc-output";
 
 export interface EditorProps {
   value: string;
   onChange: (value: string) => void;
+  diagnostics?: Diagnostic[];
 }
 
-export default function Editor({ value, onChange }: EditorProps) {
+export default function Editor({ value, onChange, diagnostics }: EditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -33,6 +37,7 @@ export default function Editor({ value, onChange }: EditorProps) {
         cpp(),
         cmTheme,
         cmSyntaxHighlight,
+        lintGutter(),
         // basicSetup'ın varsayılan autocompletion'ı üzerine yazıyor —
         // arduinoCompletionSource tek kaynak (§8.4).
         autocompletion({ override: [arduinoCompletionSource] }),
@@ -62,6 +67,13 @@ export default function Editor({ value, onChange }: EditorProps) {
     if (current === value) return;
     view.dispatch({ changes: { from: 0, to: current.length, insert: value } });
   }, [value]);
+
+  // frontend.plan.md §8.3 — derleme sonucu geldikçe hata/uyarıları satıra iliştir.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch(setDiagnostics(view.state, toCmDiagnostics(view.state, diagnostics ?? [])));
+  }, [diagnostics]);
 
   return <div ref={containerRef} className="h-full w-full overflow-auto" />;
 }

@@ -136,3 +136,38 @@
     font-weight: 500;
   }
 }
+
+/* StatusBar — derleme sürerken gerçek ilerleme yüzdesi yok, kayan bir şerit
+   gösterir; flash sırasında determinate genişliğe geçer (bkz. StatusBar.tsx). */
+@keyframes status-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+/* StatusBar — derleme/yükleme sürerken durum etiketinin üzerinde kayan
+   parlaklık; metnin kendisi saydamlaşıp gradyanı gösteriyor. */
+@keyframes shimmer-text {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--vsc-fg-muted) 40%,
+    var(--vsc-fg-active) 50%,
+    var(--vsc-fg-muted) 60%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-text 1.8s linear infinite;
+}

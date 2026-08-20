@@ -1,8 +1,8 @@
 "use client";
 
-import { Files, Settings } from "lucide-react";
+import { Files, FolderGit2, Settings } from "lucide-react";
 
-export type SidePanel = "library" | "settings";
+export type SidePanel = "library" | "projects" | "settings";
 
 export interface ActivityBarProps {
   active: SidePanel | null;
@@ -11,6 +11,7 @@ export interface ActivityBarProps {
 
 const ITEMS: { id: SidePanel; icon: typeof Files; title: string }[] = [
   { id: "library", icon: Files, title: "Sketch dosyaları" },
+  { id: "projects", icon: FolderGit2, title: "Projelerim" },
   { id: "settings", icon: Settings, title: "Kart ayarları" },
 ];
 

@@ -1,0 +1,126 @@
+// master.plan.md §3 — Faz 6 kapsamı: users/projects/builds/project_versions.
+// Faz 6.1: github_installations + projects.github_* (proje bazlı GitHub depolama).
+// shares kasıtlı olarak burada değil (Faz 8).
+
+generator client {
+  provider = "prisma-client"
+  // src/ dışında olursa tsc'nin çıkarımlı rootDir'i değişir, dist/main.js
+  // yerine dist/src/main.js üretilir (Dockerfile CMD ile uyuşmaz) — bu yüzden
+  // src/ altında.
+  output = "../src/generated/prisma"
+  // Varsayılan "esm" — Nest projesi CommonJS (package.json'da "type" yok);
+  // ESM çıktısı `import.meta.url` kullanıyor, Node bunu görünce dosyayı ESM
+  // sanıp CJS "exports" kalıntısına çarpıyordu.
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id         String   @id @default(uuid())
+  githubId   BigInt   @unique @map("github_id")
+  login      String
+  avatarUrl  String?  @map("avatar_url")
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  projects            Project[]
+  githubInstallations GithubInstallation[]
+  buildOwners         BuildOwner[]
+
+  @@map("users")
+}
+
+model Project {
+  id              String   @id @default(uuid())
+  userId          String   @map("user_id")
+  name            String
+  fqbn            String
+  // güncel taslak, [{path, content}] — storage_provider='github' olduğunda
+  // kullanılmaz, gerçek kaynak repo'dadır.
+  files           Json?
+  storageProvider String   @default("postgres") @map("storage_provider")
+
+  // §3.1 — yalnızca storage_provider='github' olduğunda dolu.
+  githubInstallationId BigInt?  @map("github_installation_id")
+  githubRepoFullName   String?  @map("github_repo_full_name")
+  githubBranch         String?  @map("github_branch")
+  // Bağlama anında proje adından türetilip donan sketch klasörü — proje
+  // sonradan yeniden adlandırılsa da repo yolu kaymasın diye ayrı kolon.
+  githubDir            String?  @map("github_dir")
+  // Repo veya App kurulumu silindiğinde (404) true olur; UI "yeniden bağla"
+  // durumunu buradan bilir.
+  githubLinkBroken     Boolean  @default(false) @map("github_link_broken")
+
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  versions           ProjectVersion[]
+  githubInstallation GithubInstallation? @relation(fields: [githubInstallationId], references: [installationId], onDelete: SetNull)
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("projects")
+}
+
+model GithubInstallation {
+  id             String   @id @default(uuid())
+  userId         String   @map("user_id")
+  installationId BigInt   @unique @map("installation_id")
+  accountLogin   String   @map("account_login")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projects Project[]
+
+  @@map("github_installations")
+}
+
+model Build {
+  buildKey    String   @id @map("build_key") @db.Char(64)
+  fqbn        String
+  coreVersion String   @map("core_version")
+  flashBytes  Int?     @map("flash_bytes")
+  ramBytes    Int?     @map("ram_bytes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  lastUsedAt  DateTime @default(now()) @map("last_used_at")
+
+  versions ProjectVersion[]
+  owners   BuildOwner[]
+
+  @@map("builds")
+}
+
+// İndirme sahipliğinin project_versions yaşam döngüsünden (30'luk budama,
+// storage_provider='github' — hiç yazılmıyor) bağımsız kanıtı. CompileService
+// başarılı her derlemede userId varsa upsert eder.
+model BuildOwner {
+  userId    String   @map("user_id")
+  buildKey  String   @map("build_key") @db.Char(64)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  build Build @relation(fields: [buildKey], references: [buildKey], onDelete: Cascade)
+
+  @@id([userId, buildKey])
+  @@map("build_owners")
+}
+
+model ProjectVersion {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  // o anki tam snapshot, [{path, content}]
+  files     Json
+  fqbn      String
+  buildKey  String?  @map("build_key") @db.Char(64)
+  note      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  build   Build?  @relation(fields: [buildKey], references: [buildKey])
+
+  @@index([projectId, createdAt(sort: Desc)])
+  @@map("project_versions")
+}

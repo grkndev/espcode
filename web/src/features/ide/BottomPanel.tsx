@@ -1,6 +1,6 @@
 "use client";
 
-import type { Ref } from "react";
+import { useEffect, useRef, type Ref } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import SerialTerminal, { type TerminalHandle } from "@/features/monitor/Terminal";
 import Plotter, { type PlotterHandle } from "@/features/plotter/Plotter";
@@ -10,6 +10,8 @@ const BAUD_RATES = [9600, 19200, 38400, 57600, 74880, 115200, 230400, 460800, 92
 export type LineEnding = "none" | "lf" | "cr" | "crlf";
 
 export interface BottomPanelProps {
+  activeTab: string;
+  onActiveTabChange: (tab: string) => void;
   terminalRef: Ref<TerminalHandle>;
   plotterRef: Ref<PlotterHandle>;
   isMonitoring: boolean;
@@ -17,17 +19,19 @@ export interface BottomPanelProps {
   baud: number;
   onBaudChange: (baud: number) => void;
   onToggleMonitor: () => void;
+  onClearMonitor: () => void;
   sendValue: string;
   onSendValueChange: (value: string) => void;
   onSendKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   lineEnding: LineEnding;
   onLineEndingChange: (ending: LineEnding) => void;
   onSend: () => void;
-  onExport: (kind: "log" | "csv") => void;
   buildLog: string;
 }
 
 export default function BottomPanel({
+  activeTab,
+  onActiveTabChange,
   terminalRef,
   plotterRef,
   isMonitoring,
@@ -35,19 +39,28 @@ export default function BottomPanel({
   baud,
   onBaudChange,
   onToggleMonitor,
+  onClearMonitor,
   sendValue,
   onSendValueChange,
   onSendKeyDown,
   lineEnding,
   onLineEndingChange,
   onSend,
-  onExport,
   buildLog,
 }: BottomPanelProps) {
+  const buildScrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = buildScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [buildLog]);
+
   return (
     <Tabs
-      defaultValue="monitor"
-      className="flex h-full flex-col gap-0 bg-[var(--vsc-panel)] text-[var(--vsc-fg)]"
+      value={activeTab}
+      onValueChange={onActiveTabChange}
+      className="flex h-full flex-col gap-0 overflow-hidden bg-[var(--vsc-panel)] text-[var(--vsc-fg)]"
     >
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--vsc-border)] px-3 py-2">
         <TabsList variant="line" className="bg-transparent">
@@ -72,6 +85,7 @@ export default function BottomPanel({
         </TabsList>
 
         <div className="flex items-center gap-2.5">
+          <span className="text-xs text-[var(--vsc-fg-muted)]">Baud Rate</span>
           <select
             value={baud}
             onChange={(e) => onBaudChange(Number(e.target.value))}
@@ -79,10 +93,16 @@ export default function BottomPanel({
           >
             {BAUD_RATES.map((b) => (
               <option key={b} value={b}>
-                {b}
+                {b} baud
               </option>
             ))}
           </select>
+          <button
+            onClick={onClearMonitor}
+            className="rounded-md border border-[var(--vsc-border)] px-3.5 py-1.5 text-xs font-medium text-[var(--vsc-fg)] transition-transform hover:text-[var(--vsc-fg-active)] active:scale-[0.97]"
+          >
+            Temizle
+          </button>
           <button
             onClick={onToggleMonitor}
             disabled={!canMonitor}
@@ -93,10 +113,7 @@ export default function BottomPanel({
         </div>
       </div>
 
-      <TabsContent value="monitor" className="flex min-h-0 flex-1 flex-col gap-3 p-4">
-        <div className="min-h-0 flex-1">
-          <SerialTerminal ref={terminalRef} />
-        </div>
+      <TabsContent value="monitor" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
         <div className="flex shrink-0 items-center gap-2.5">
           <input
             value={sendValue}
@@ -124,13 +141,8 @@ export default function BottomPanel({
             Gönder
           </button>
         </div>
-        <div className="flex shrink-0 gap-4 text-xs text-[var(--vsc-fg-muted)]">
-          <button onClick={() => onExport("log")} className="underline">
-            .log indir
-          </button>
-          <button onClick={() => onExport("csv")} className="underline">
-            .csv indir
-          </button>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <SerialTerminal ref={terminalRef} />
         </div>
       </TabsContent>
 
@@ -138,10 +150,14 @@ export default function BottomPanel({
         <Plotter ref={plotterRef} />
       </TabsContent>
 
-      <TabsContent value="build" className="min-h-0 flex-1 overflow-y-auto p-4">
-        <pre className="whitespace-pre-wrap font-[var(--font-code)] text-xs text-[var(--vsc-fg-muted)]">
-          {buildLog || "Henüz bir günlük yok."}
-        </pre>
+      <TabsContent value="build" className="min-h-0 flex-1 overflow-hidden">
+        <div ref={buildScrollRef} className="h-full overflow-y-auto p-4">
+          <pre className="whitespace-pre-wrap font-[var(--font-code)] text-xs text-[var(--vsc-fg-muted)]">
+            {/* esptool ilerleme satırları \r ile satır içi güncelleme yapar; \n'e
+                çevirmezsek mesajlar alt alta değil yan yana akar. */}
+            {buildLog.replace(/\r\n?/g, "\n") || "Henüz bir günlük yok."}
+          </pre>
+        </div>
       </TabsContent>
     </Tabs>
   );

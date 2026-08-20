@@ -1,13 +1,23 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import { checkSerialSupport } from "@/lib/serial/support";
 import { serialSession } from "@/features/serial/SerialSession";
 import { useSerialStore } from "@/features/serial/useSerialStore";
-import { getChipInfo, flashFirmware } from "@/features/flash/flasher";
+import {
+  getChipInfo,
+  flashFirmware,
+  FLASH_STAGE_LABEL,
+  type FlashStage,
+} from "@/features/flash/flasher";
+import { useBuild } from "@/features/build/useBuild";
+import { useAuth } from "@/features/auth/useAuth";
+import ProjectsPanel, { type PendingGithubInstall } from "@/features/projects/ProjectsPanel";
+import { useProjects } from "@/features/projects/useProjects";
 import { describeSerialError } from "@/lib/serial/errors";
 import { type TerminalHandle } from "@/features/monitor/Terminal";
-import { LineBuffer } from "@/features/monitor/line-buffer";
 import { type PlotterHandle } from "@/features/plotter/Plotter";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import Editor from "@/features/editor/Editor";
@@ -24,6 +34,7 @@ import {
 } from "@/features/editor/sketch-files";
 import TopBar from "./TopBar";
 import { BOARDS } from "./board-match";
+import { defaultOptionValues } from "./board-options";
 import StatusBar from "./StatusBar";
 import BottomPanel, { type LineEnding } from "./BottomPanel";
 import ActivityBar, { type SidePanel } from "./ActivityBar";
@@ -43,10 +54,23 @@ export default function IdeShell() {
   const support = checkSerialSupport();
   const { state, chipInfo, error, connecting, connect, setChipInfo, setError } =
     useSerialStore();
+  const build = useBuild();
+  const auth = useAuth();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { loadProject } = useProjects();
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [pendingGithubInstall, setPendingGithubInstall] = useState<PendingGithubInstall | null>(
+    null,
+  );
 
   const [fqbn, setFqbn] = useState(BOARDS[2].fqbn); // esp32:esp32:esp32s3
+  const [boardOptions, setBoardOptions] = useState<Record<string, string>>(() =>
+    defaultOptionValues(BOARDS[2].fqbn),
+  );
   const [sidePanel, setSidePanel] = useState<SidePanel | null>("library");
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [bottomTab, setBottomTab] = useState("monitor");
   const [boardDialogOpen, setBoardDialogOpen] = useState(false);
 
   // frontend.plan.md §3.2 — çoklu dosya sketch modeli
@@ -57,13 +81,9 @@ export default function IdeShell() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [syncFailCount, setSyncFailCount] = useState(0);
 
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [fileData, setFileData] = useState<Uint8Array | null>(null);
-  const [address, setAddress] = useState("0x0");
-
   const [flashing, setFlashing] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
-  const [flashDone, setFlashDone] = useState(false);
+  const [flashStage, setFlashStage] = useState<FlashStage | null>(null);
 
   const [baud, setBaud] = useState(115200);
   const [lineEnding, setLineEnding] = useState<LineEnding>("lf");
@@ -74,7 +94,6 @@ export default function IdeShell() {
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
   const terminalRef = useRef<TerminalHandle>(null);
   const plotterRef = useRef<PlotterHandle>(null);
-  const lineBufferRef = useRef(new LineBuffer());
   const pendingLineRef = useRef("");
 
   const isMonitoring = state === "monitoring";
@@ -89,7 +108,6 @@ export default function IdeShell() {
   useEffect(() => {
     return serialSession.subscribeData((chunk) => {
       terminalRef.current?.write(chunk);
-      lineBufferRef.current.push(chunk);
 
       pendingLineRef.current += chunk;
       const lines = pendingLineRef.current.split(/\r\n|\r|\n/);
@@ -97,6 +115,13 @@ export default function IdeShell() {
       for (const line of lines) plotterRef.current?.pushLine(line);
     });
   }, []);
+
+  // Tüm geçici mesajlar toast ile veriliyor — ayrı bir banner alanı yok;
+  // store'un kendi içinde (ör. requestPort iptali) veya handler'larda
+  // setError çağrılan her yerde buradan tek noktadan toast'lanır.
+  useEffect(() => {
+    if (error) toast.error("Hata", { description: error });
+  }, [error]);
 
   useEffect(() => {
     if (!flashing) return;
@@ -116,6 +141,52 @@ export default function IdeShell() {
     };
   }, [flashing]);
 
+  // Editör artık ana sayfa değil (app/page.tsx dashboard'a çevrildi) — girişsiz
+  // buraya doğrudan URL ile gelen kullanıcıyı dashboard/login kapısına yolla.
+  useEffect(() => {
+    if (!auth.loading && !auth.user) router.replace("/");
+  }, [auth.loading, auth.user, router]);
+
+  // Dashboard'dan "?project=<id>" ile açılan proje varsa gerçek kaynağından
+  // (postgres taslağı ya da bağlı GitHub repo'su) o anki dosyaları yükle.
+  useEffect(() => {
+    const projectId = searchParams.get("project");
+    if (!projectId || !auth.user) return;
+    let cancelled = false;
+    void loadProject(projectId)
+      .then((detail) => {
+        if (cancelled) return;
+        handleActivateProject(projectId, detail.files, detail.fqbn);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        handleActivateProject(projectId);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnızca URL'deki proje id'si ve giriş durumu değiştiğinde tekrar çalışsın
+  }, [searchParams, auth.user]);
+
+  // GitHub App kurulum akışından dönüş — §3.1 adım 3-4. Callback API'de
+  // gerçekleşir, buraya yalnızca sonucu taşıyan query param'larla döner.
+  // Projeyi aktive eden effect zaten çalışacak (?project= burada da var);
+  // bu effect yalnızca repo seçim dialoğunu tetikleyecek bilgiyi taşır.
+  useEffect(() => {
+    const github = searchParams.get("github");
+    const installation = searchParams.get("installation");
+    const projectId = searchParams.get("project");
+    if (github !== "installed" || !installation || !projectId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL'den gelen tek seferlik yönlendirme sonucu, sorgu kütüphanesi yok
+    setPendingGithubInstall({ projectId, installationId: installation });
+    setSidePanel("projects");
+    const next = new URLSearchParams(searchParams);
+    next.delete("github");
+    next.delete("installation");
+    router.replace(`/editor?${next.toString()}`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnızca URL'deki github/installation/project param'ları değiştiğinde tekrar çalışsın
+  }, [searchParams]);
+
   async function handleConnect() {
     setError(null);
     await connect();
@@ -128,8 +199,16 @@ export default function IdeShell() {
       setSyncFailCount(0);
       setBoardDialogOpen(true); // bağlantı + tespit bitince kart seçim dialoğu açılır
     } catch (err) {
-      setSyncFailCount((n) => n + 1);
+      const nextCount = syncFailCount + 1;
+      setSyncFailCount(nextCount);
       setError(describeSerialError(err));
+      if (nextCount >= MANUAL_MODE_THRESHOLD) {
+        toast.warning("Kart yanıt vermiyor", {
+          description:
+            "Kartın üzerindeki BOOT düğmesini basılı tut, EN (veya RST) düğmesine bir kez bas, sonra BOOT'u bırak. Ardından tekrar bağlanmayı dene.",
+          duration: 8000,
+        });
+      }
     }
   }
 
@@ -145,7 +224,12 @@ export default function IdeShell() {
 
   function handleSelectBoard(next: string) {
     setFqbn(next);
+    setBoardOptions(defaultOptionValues(next)); // seçenekler karta göre değişir, sıfırlanır
     setBoardDialogOpen(false);
+  }
+
+  function handleOptionChange(key: string, value: string) {
+    setBoardOptions((prev) => ({ ...prev, [key]: value }));
   }
 
   function handleOpenFile(path: string) {
@@ -177,21 +261,63 @@ export default function IdeShell() {
     setSidePanel((prev) => (prev === panel ? null : panel));
   }
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const buffer = await file.arrayBuffer();
-    setFileName(file.name);
-    setFileData(new Uint8Array(buffer));
+  // master.plan.md §6 — proje oluşturma/yükleme/versiyon geri yükleme, hepsi
+  // aynı yoldan geçer: editör içeriğini değiştirir + hangi projenin aktif
+  // olduğunu işaretler (sonraki "Derle ve Yükle" o projeye versiyon yazar).
+  function handleActivateProject(id: string | null, newFiles?: SketchFile[], newFqbn?: string) {
+    setActiveProjectId(id);
+    if (newFiles) {
+      setFiles(newFiles);
+      const stillOpen = newFiles.some((f) => f.path === activePath);
+      setOpenPaths(stillOpen ? [activePath] : [PRIMARY_FILE]);
+      setActivePath(stillOpen ? activePath : PRIMARY_FILE);
+    }
+    if (newFqbn) {
+      setFqbn(newFqbn);
+      setBoardOptions(defaultOptionValues(newFqbn));
+    }
   }
 
-  async function handleFlash() {
-    const port = serialSession.getPort();
-    if (!port || !fileData) return;
-    setError(null);
-    setFlashDone(false);
-    setFlashing(true);
+  // Yalnızca derle (Arduino IDE'nin "Verify" karşılığı) — kartı yazmaz,
+  // sadece hataları/uyarıları editöre iliştirir.
+  async function handleCompile() {
+    setTerminalOpen(true);
+    setBottomTab("build");
+    setLogLines([]); // her işlemde derleme çıktısı sıfırdan başlasın
+    try {
+      const result = await build.compile(files, fqbn, boardOptions);
+      toast.success("Derleme tamamlandı", {
+        description: `${result.flashBytes.toLocaleString("tr-TR")} bayt`,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Derleme başarısız";
+      toast.error("Derleme başarısız", { description: message });
+    }
+  }
 
+  // frontend.plan.md §8 — Faz 5: derle (POST /api/compile + SSE) → merged.bin'i
+  // 0x0'a yaz.
+  async function handleCompileAndFlash() {
+    const port = serialSession.getPort();
+    if (!port) return;
+    setTerminalOpen(true);
+    setBottomTab("build");
+    setLogLines([]); // her işlemde derleme çıktısı sıfırdan başlasın
+
+    // §6 "Flash sonrası versiyon kaydı" — yalnızca girişliyken ve aktif proje
+    // varken; "Derle" (yalnızca doğrula) bu satırı hiç göndermiyor.
+    const projectId = auth.user && activeProjectId ? activeProjectId : undefined;
+
+    let result;
+    try {
+      result = await build.compile(files, fqbn, boardOptions, projectId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Derleme başarısız";
+      toast.error("Derleme başarısız", { description: message });
+      return;
+    }
+
+    setFlashing(true);
     // frontend.plan.md §4.1 — monitör açıkken flash: devri kullanıcıya
     // göstermeden durdur → yaz → geri başlat.
     const wasMonitoring = isMonitoring;
@@ -199,17 +325,42 @@ export default function IdeShell() {
     serialSession.beginFlashing();
 
     try {
-      const addr = Number.parseInt(address, 16);
-      await flashFirmware(port, { data: fileData, address: addr }, setProgress, appendLog);
-      setFlashDone(true);
+      await flashFirmware(
+        port,
+        { data: result.binary, address: 0 },
+        setProgress,
+        appendLog,
+        setFlashStage,
+      );
+      toast.success("Yükleme tamamlandı", {
+        description:
+          projectId && result.versionSaved === "ok"
+            ? "Kart yeniden başlatıldı. Proje kaydedildi."
+            : "Kart yeniden başlatıldı.",
+      });
+      if (projectId && result.versionSaved && result.versionSaved !== "ok") {
+        const description =
+          result.versionSaved === "conflict"
+            ? "GitHub'da bu dosyalar elden değişmiş — Commit'le ile üzerine yazmayı onaylaman gerekiyor."
+            : result.versionSaved === "link_broken"
+              ? "GitHub bağlantısı koptu — projeyi yeniden bağla."
+              : "Kod kaydedilemedi, ama kart yazıldı.";
+        toast.warning("Proje kaydedilemedi", { description });
+      }
     } catch (err) {
-      setError(describeSerialError(err));
+      toast.error("Yükleme başarısız", { description: describeSerialError(err) });
     } finally {
       setFlashing(false);
       setProgress(null);
+      setFlashStage(null);
       serialSession.endFlashing();
       if (wasMonitoring) await serialSession.startMonitor(baud).catch(() => {});
     }
+  }
+
+  function handleClearMonitor() {
+    terminalRef.current?.clear();
+    plotterRef.current?.clear();
   }
 
   async function handleToggleMonitor() {
@@ -218,9 +369,7 @@ export default function IdeShell() {
       if (isMonitoring) {
         await serialSession.stopMonitor();
       } else {
-        terminalRef.current?.clear();
-        lineBufferRef.current.clear();
-        plotterRef.current?.clear();
+        handleClearMonitor();
         await serialSession.startMonitor(baud);
       }
     } catch (err) {
@@ -263,25 +412,19 @@ export default function IdeShell() {
     }
   }
 
-  function exportBuffer(kind: "log" | "csv") {
-    const text = kind === "log" ? lineBufferRef.current.toLog() : lineBufferRef.current.toCsv();
-    const blob = new Blob([text], { type: "text/plain" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `espcode-monitor.${kind}`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+  // Girişsizken yönlendirme (yukarıdaki effect) tamamlanana kadar tam IDE
+  // kabuğunun bir anlığına çakmasını önle.
+  if (auth.loading) return null;
+  if (!auth.user) return null;
 
   if (!support.ok) {
     return (
       <div className="mx-auto max-w-2xl p-8">
-        <Banner tone="warn">
+        <div className="rounded border border-[var(--vsc-fg-muted)] px-4 py-3 text-sm text-[var(--vsc-fg-muted)]">
           {support.reason === "no_api"
             ? "Bu tarayıcı karta yazmayı desteklemiyor. Chrome, Edge veya Firefox 151+ kullan — ya da .bin dosyasını indirip kendi aracınla yaz."
             : "Karta yazmak için güvenli bağlantı gerekiyor. Adresi https:// ile aç."}
-        </Banner>
+        </div>
       </div>
     );
   }
@@ -299,31 +442,13 @@ export default function IdeShell() {
         onSelectBoard={handleSelectBoard}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => setTerminalOpen((v) => !v)}
-        flash={{
-          connected: isConnected,
-          fileName,
-          onFile: handleFile,
-          address,
-          onAddressChange: setAddress,
-          flashing,
-          progress,
-          flashDone,
-          canFlash: isConnected && !!fileData,
-          onFlash: handleFlash,
-        }}
+        compiling={build.status === "compiling"}
+        flashing={flashing}
+        onCompile={handleCompile}
+        onCompileAndFlash={handleCompileAndFlash}
+        user={auth.user}
+        onLogin={auth.login}
       />
-
-      {(error || syncFailCount >= MANUAL_MODE_THRESHOLD) && (
-        <div className="flex flex-col gap-1 border-b border-[var(--vsc-border)] bg-[var(--vsc-activitybar)] p-2">
-          {error && <Banner tone="error">{error}</Banner>}
-          {syncFailCount >= MANUAL_MODE_THRESHOLD && (
-            <Banner tone="warn">
-              Kart yanıt vermiyor. Kartın üzerindeki BOOT düğmesini basılı tut, EN (veya RST)
-              düğmesine bir kez bas, sonra BOOT&apos;u bırak. Ardından tekrar bağlanmayı dene.
-            </Banner>
-          )}
-        </div>
-      )}
 
       <div className="flex min-h-0 flex-1">
         <ActivityBar active={sidePanel} onSelect={handleSelectPanel} />
@@ -332,7 +457,7 @@ export default function IdeShell() {
           {sidePanel && (
             <>
               <ResizablePanel defaultSize="18" minSize="14" maxSize="30">
-                {sidePanel === "library" ? (
+                {sidePanel === "library" && (
                   <FileTree
                     files={files}
                     activePath={activePath}
@@ -340,8 +465,28 @@ export default function IdeShell() {
                     onAdd={handleAddFile}
                     onRemove={handleRemoveFile}
                   />
-                ) : (
-                  <SettingsPanel fqbn={fqbn} chipInfo={chipInfo} />
+                )}
+                {sidePanel === "projects" && (
+                  <ProjectsPanel
+                    user={auth.user}
+                    authLoading={auth.loading}
+                    onLogin={auth.login}
+                    onLogout={auth.logout}
+                    files={files}
+                    fqbn={fqbn}
+                    activeProjectId={activeProjectId}
+                    onActivate={handleActivateProject}
+                    pendingGithubInstall={pendingGithubInstall}
+                    onConsumePendingGithubInstall={() => setPendingGithubInstall(null)}
+                  />
+                )}
+                {sidePanel === "settings" && (
+                  <SettingsPanel
+                    fqbn={fqbn}
+                    chipInfo={chipInfo}
+                    boardOptions={boardOptions}
+                    onOptionChange={handleOptionChange}
+                  />
                 )}
               </ResizablePanel>
               <ResizableHandle withHandle />
@@ -366,6 +511,9 @@ export default function IdeShell() {
                       onChange={(content) =>
                         setFiles((prev) => updateFileContent(prev, activeFile.path, content))
                       }
+                      diagnostics={build.diagnostics.filter(
+                        (d) => d.file === activeFile.path.split("/").pop(),
+                      )}
                     />
                   </div>
                 </div>
@@ -376,6 +524,8 @@ export default function IdeShell() {
                   <ResizableHandle withHandle />
                   <ResizablePanel defaultSize="30" minSize="15">
                     <BottomPanel
+                      activeTab={bottomTab}
+                      onActiveTabChange={setBottomTab}
                       terminalRef={terminalRef}
                       plotterRef={plotterRef}
                       isMonitoring={isMonitoring}
@@ -383,14 +533,14 @@ export default function IdeShell() {
                       baud={baud}
                       onBaudChange={handleBaudChange}
                       onToggleMonitor={handleToggleMonitor}
+                      onClearMonitor={handleClearMonitor}
                       sendValue={sendValue}
                       onSendValueChange={setSendValue}
                       onSendKeyDown={handleSendKeyDown}
                       lineEnding={lineEnding}
                       onLineEndingChange={setLineEnding}
                       onSend={handleSend}
-                      onExport={exportBuffer}
-                      buildLog={logLines.join("")}
+                      buildLog={build.log + logLines.join("")}
                     />
                   </ResizablePanel>
                 </>
@@ -400,23 +550,14 @@ export default function IdeShell() {
         </ResizablePanelGroup>
       </div>
 
-      <StatusBar state={state} fqbn={fqbn} baud={baud} />
+      <StatusBar
+        state={state}
+        fqbn={fqbn}
+        baud={baud}
+        buildStatus={build.status}
+        flashProgress={progress}
+        flashStageLabel={flashStage ? FLASH_STAGE_LABEL[flashStage] : null}
+      />
     </div>
   );
-}
-
-function Banner({
-  tone,
-  children,
-}: {
-  tone: "warn" | "error" | "ok";
-  children: React.ReactNode;
-}) {
-  const toneClass =
-    tone === "error"
-      ? "border-red-500 text-red-400"
-      : tone === "ok"
-        ? "border-[var(--vsc-accent)] text-[var(--vsc-accent)]"
-        : "border-[var(--vsc-fg-muted)] text-[var(--vsc-fg-muted)]";
-  return <div className={`rounded border px-4 py-3 text-sm ${toneClass}`}>{children}</div>;
 }

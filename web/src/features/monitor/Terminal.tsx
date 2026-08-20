@@ -46,8 +46,14 @@ const SerialTerminal = forwardRef<TerminalHandle>(function SerialTerminal(_props
 
     const onResize = () => fit.fit();
     window.addEventListener("resize", onResize);
+    // ResizablePanel sürüklemesi window resize tetiklemez — konteynerin kendi
+    // boyut değişimini izle, yoksa xterm eski satır/sütun sayısında donar ve
+    // panel taştığında bütün kabuk (sekmeler dahil) kayar.
+    const ro = new ResizeObserver(() => fit.fit());
+    ro.observe(containerRef.current);
     return () => {
       window.removeEventListener("resize", onResize);
+      ro.disconnect();
       term.dispose();
       termRef.current = null;
     };
@@ -66,12 +72,21 @@ const SerialTerminal = forwardRef<TerminalHandle>(function SerialTerminal(_props
           scheduledRef.current = false;
         });
       },
-      clear: () => termRef.current?.clear(),
+      clear: () => {
+        // Temizlenirken hâlâ yazılmayı bekleyen (rAF'a kuyruğa alınmış) bir
+        // parça olabilir — sıfırlamazsak ekran temizlenir temizlenmez o eski
+        // veri geri yazılır, temizleme hiç olmamış gibi görünür.
+        pendingRef.current = "";
+        // term.clear() imleç satırını "yeni prompt satırı" olarak korur (gerçek
+        // shell davranışını taklit eder) — bizde prompt yok, o satır hep geride
+        // kalan tek mesaj gibi görünüyordu. reset() (RIS) hiçbir şey bırakmaz.
+        termRef.current?.reset();
+      },
     }),
     [],
   );
 
-  return <div ref={containerRef} className="h-64 overflow-hidden rounded" />;
+  return <div ref={containerRef} className="h-full w-full overflow-hidden rounded" />;
 });
 
 export default SerialTerminal;

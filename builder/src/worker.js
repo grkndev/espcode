@@ -2,7 +2,7 @@ import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, writeFile, rm, stat } from "node:fs/promises";
+import { mkdir, writeFile, rm, stat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -26,6 +26,18 @@ async function ensureArduinoConfig() {
   await execFileAsync("arduino-cli", ["config", "init", "--dest-dir", "/tmp", "--overwrite"]);
 }
 
+// api/src/compile/allowed-fqbn.ts'in aynısı — kart seçenekleri FQBN'e
+// :key=value,... olarak ekleniyor. Bilinmeyen bir anahtar/değer arduino-cli'de
+// derleme hatasına düşer, güvenlik riski oluşturmaz.
+const OPTION_TOKEN = /^[A-Za-z0-9_]+$/;
+function buildExtendedFqbn(fqbn, options) {
+  if (!options || Object.keys(options).length === 0) return fqbn;
+  const parts = Object.entries(options)
+    .filter(([k, v]) => OPTION_TOKEN.test(k) && OPTION_TOKEN.test(String(v)))
+    .map(([k, v]) => `${k}=${v}`);
+  return parts.length ? `${fqbn}:${parts.join(",")}` : fqbn;
+}
+
 // frontend.plan.md §3.2 — düz dosya adı, izin verilen uzantı; alt klasör veya
 // path traversal yok (worker bu adları doğrudan diske yazıyor).
 const FILE_NAME_RE = /^[\w.-]+\.(ino|cpp|h|hpp)$/;
@@ -42,7 +54,7 @@ function validateFiles(files) {
 
 // backend.plan.md §7.3 — kaynak dosyaya yazılır, komut satırına değil;
 // execFile kullanılır (shell yorumlaması yok).
-async function compileJob({ files, fqbn }) {
+async function compileJob({ files, fqbn, options }) {
   const invalid = validateFiles(files);
   if (invalid) return { ok: false, error: invalid };
   if (!ALLOWED_FQBN.has(fqbn)) {
@@ -63,24 +75,37 @@ async function compileJob({ files, fqbn }) {
       [
         "compile",
         "--fqbn",
-        fqbn,
+        buildExtendedFqbn(fqbn, options),
         "--jobs",
         COMPILE_JOBS,
         "--build-path",
         buildDir,
+        // --export-binaries olmadan sadece uygulama parçası (sketch.ino.bin)
+        // üretilir, 0x10000 (partition şemasına göre değişen) bir ofsete
+        // yazılması gerekir. merged.bin bootloader+partition+app'i doğru
+        // ofsetlerde birleştirir, 0x0'dan tek parça yazılabilir (frontend
+        // Faz 1'de doğrulanmış yol).
+        "--export-binaries",
         sketchDir,
       ],
       { timeout: BUILD_TIMEOUT_SEC * 1000, maxBuffer: 16 * 1024 * 1024 },
     );
 
-    const binPath = path.join(buildDir, "sketch.ino.bin");
+    const binPath = path.join(buildDir, "sketch.ino.merged.bin");
     const elfPath = path.join(buildDir, "sketch.ino.elf");
-    const [binStat, elfStat] = await Promise.all([stat(binPath), stat(elfPath)]);
+    const [binStat, elfStat, binBuf] = await Promise.all([
+      stat(binPath),
+      stat(elfPath),
+      readFile(binPath),
+    ]);
 
+    // R2 henüz bağlı değil (master.plan.md §6.2 — kimlik bilgisi yok); geçici
+    // olarak derlenmiş .bin doğrudan job sonucunda base64 taşınıyor.
     return {
       ok: true,
       flashBytes: binStat.size,
       elfBytes: elfStat.size,
+      binBase64: binBuf.toString("base64"),
       log: stdout + stderr,
     };
   } catch (err) {

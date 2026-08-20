@@ -1,11 +1,15 @@
 "use client";
 
-import dynamic from "next/dynamic";
+import { useAuth } from "@/features/auth/useAuth";
+import LoginScreen from "@/features/auth/LoginScreen";
+import Dashboard from "@/features/dashboard/Dashboard";
 
-// esptool-js ve Web Serial navigator'a erişiyor — build sırasında SSR'da patlar
-// (frontend.plan.md §2.3), bu yüzden ssr: false zorunlu.
-const IdeShell = dynamic(() => import("@/features/ide/IdeShell"), { ssr: false });
-
+// Editör artık ana sayfa değil (bkz. features/ide, app/editor/page.tsx) — burası
+// yalnızca giriş kapısı: girişsizken sadece login ekranı, girişliyken dashboard.
 export default function Home() {
-  return <IdeShell />;
+  const auth = useAuth();
+
+  if (auth.loading) return null;
+  if (!auth.user) return <LoginScreen onLogin={auth.login} />;
+  return <Dashboard user={auth.user} onLogout={auth.logout} />;
 }
