@@ -21,7 +21,6 @@ export interface TopBarProps {
   flashing: boolean;
   onCompile: () => void;
   onCompileAndFlash: () => void;
-  onOpenCommandPalette: () => void;
 }
 
 export default function TopBar({
@@ -39,16 +38,15 @@ export default function TopBar({
   flashing,
   onCompile,
   onCompileAndFlash,
-  onOpenCommandPalette,
 }: TopBarProps) {
   const busy = compiling || flashing;
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--vsc-border)] bg-[var(--vsc-activitybar)] px-4">
+    <header className="flex h-[52px] shrink-0 items-center justify-between border-b border-[var(--vsc-border)] bg-[var(--vsc-activitybar)] px-4">
       <div className="flex items-center gap-3">
         <Link
           href="/"
           title="Panoya dön"
-          className="[font-family:var(--font-display)] text-2xl font-semibold tracking-tight text-[var(--vsc-fg-active)]"
+          className="font-[family-name:var(--font-display)] text-lg font-bold tracking-tight text-[var(--vsc-fg-active)]"
         >
           espcode
         </Link>
@@ -56,29 +54,28 @@ export default function TopBar({
         <button
           onClick={onTriggerClick}
           disabled={connecting}
-          className="flex items-center gap-2 rounded-md border border-[var(--vsc-border)] bg-[var(--vsc-selected)] px-3 py-1.5 text-xs font-medium text-[var(--vsc-fg)] transition-transform active:scale-[0.97] disabled:opacity-60"
+          className="flex items-center gap-2 rounded-[8px] border border-[var(--vsc-border-input)] bg-[var(--vsc-selected)] px-3 py-1.5 text-xs font-medium text-[var(--vsc-fg)] transition-transform active:scale-[0.97] disabled:opacity-60"
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-400" : "bg-[var(--vsc-fg-muted)]"}`}
+            className={`h-1.5 w-1.5 rounded-full ${connected ? "bg-[var(--vsc-success)]" : "bg-[var(--vsc-fg-muted)]"}`}
           />
           {connecting ? "Bağlanıyor…" : connected ? boardLabel(fqbn) : "Kart seçiniz"}
           <ChevronDown size={13} strokeWidth={2.25} className="text-[var(--vsc-fg-muted)]" />
         </button>
 
-        <button
-          onClick={onOpenCommandPalette}
-          title="Komut paleti"
-          className="hidden items-center rounded-md px-1.5 py-1 text-[11px] font-medium text-[var(--vsc-fg-muted)] transition-colors hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg)] sm:flex"
+        <span
+          title="⌘K ile kart seçiciyi aç"
+          className="hidden rounded-[6px] border border-[var(--vsc-border-input)] px-1.5 py-0.5 font-[family-name:var(--font-data)] text-[10px] font-medium text-[var(--vsc-fg-muted)] sm:inline-block"
         >
-          <kbd className="font-[inherit]">⌘K</kbd>
-        </button>
+          ⌘K
+        </span>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <button
           onClick={onToggleTerminal}
           title="Terminal"
-          className={`flex h-9 w-9 items-center justify-center rounded-md transition-transform active:scale-[0.94] ${
+          className={`flex h-9 w-9 items-center justify-center rounded-[8px] transition-transform active:scale-[0.94] ${
             terminalOpen
               ? "bg-[var(--vsc-selected)] text-[var(--vsc-fg-active)]"
               : "text-[var(--vsc-fg-muted)] hover:text-[var(--vsc-fg)]"
@@ -91,7 +88,7 @@ export default function TopBar({
           onClick={onCompile}
           disabled={!connected || busy}
           title="Derle"
-          className="flex items-center gap-2 rounded-md border border-[var(--vsc-border)] px-3.5 py-2 text-xs font-medium text-[var(--vsc-fg)] transition-transform hover:text-[var(--vsc-fg-active)] active:scale-[0.94] disabled:opacity-40 disabled:active:scale-100"
+          className="flex items-center gap-2 rounded-[8px] border border-[var(--vsc-border-ghost)] px-3.5 py-[7px] text-[12.5px] font-medium text-[var(--vsc-fg)] transition-transform hover:text-[var(--vsc-fg-active)] active:scale-[0.94] disabled:opacity-40 disabled:active:scale-100"
         >
           <Hammer size={14} strokeWidth={2.25} />
           {compiling && !flashing ? "Derleniyor…" : "Derle"}
@@ -101,7 +98,7 @@ export default function TopBar({
           onClick={onCompileAndFlash}
           disabled={!connected || busy}
           title="Derle ve Yükle"
-          className="flex items-center gap-2 rounded-md bg-[var(--vsc-accent)] px-3.5 py-2 text-xs font-medium text-white transition-transform active:scale-[0.94] disabled:opacity-40 disabled:active:scale-100"
+          className="flex items-center gap-2 rounded-[8px] bg-[var(--vsc-accent)] px-3.5 py-[7px] text-[12.5px] font-semibold text-white transition-transform active:scale-[0.94] disabled:opacity-40 disabled:active:scale-100"
         >
           <Rocket size={14} strokeWidth={2.25} />
           {compiling ? "Derleniyor…" : flashing ? "Yükleniyor…" : "Derle ve Yükle"}

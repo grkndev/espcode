@@ -19,7 +19,7 @@ const ICON_COLOR: Record<string, string> = {
 
 export default function TabBar({ openPaths, activePath, onSelect, onClose }: TabBarProps) {
   return (
-    <div className="flex h-11 shrink-0 items-stretch overflow-x-auto bg-[var(--vsc-activitybar)]">
+    <div className="flex h-10 shrink-0 items-stretch overflow-x-auto border-b border-[var(--vsc-border)] bg-[var(--vsc-activitybar)]">
       {openPaths.map((path) => {
         const active = path === activePath;
         const ext = path.split(".").pop() ?? "";
@@ -27,10 +27,10 @@ export default function TabBar({ openPaths, activePath, onSelect, onClose }: Tab
           <button
             key={path}
             onClick={() => onSelect(path)}
-            className={`group flex shrink-0 items-center gap-2.5 border-r border-[var(--vsc-border)] px-4 [font-family:var(--font-data)] text-[13px] font-medium ${
+            className={`group flex shrink-0 items-center gap-2.5 border-r border-[var(--vsc-border)] px-4 font-[family-name:var(--font-ui)] text-[12.5px] font-medium ${
               active
-                ? "bg-[var(--vsc-editor-bg)] text-[var(--vsc-editor-fg)]"
-                : "text-[var(--vsc-fg-muted)] hover:text-[var(--vsc-fg)]"
+                ? "border-t-2 border-t-[var(--vsc-accent)] bg-[var(--vsc-editor-bg)] text-[var(--vsc-editor-fg)]"
+                : "border-t-2 border-t-transparent text-[var(--vsc-fg-muted)] hover:text-[var(--vsc-fg)]"
             }`}
           >
             <FileCode size={15} strokeWidth={2.25} color={ICON_COLOR[ext] ?? "#a1a1aa"} />

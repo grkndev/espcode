@@ -13,8 +13,8 @@ const STATE_LABEL: Record<SerialSessionState, string> = {
 
 const STATE_DOT: Record<SerialSessionState, string> = {
   disconnected: "bg-[var(--vsc-fg-muted)]",
-  granted: "bg-[var(--vsc-accent)]",
-  monitoring: "bg-emerald-500",
+  granted: "bg-[var(--vsc-accent-mono)]",
+  monitoring: "bg-[var(--vsc-success)]",
   flashing: "bg-amber-500 animate-pulse",
 };
 
@@ -43,7 +43,7 @@ export default function StatusBar({
   const percent = flashing && flashProgress !== null ? Math.round(flashProgress * 100) : null;
 
   return (
-    <footer className="relative flex h-8 shrink-0 items-center gap-5 border-t border-[var(--vsc-border)] bg-[var(--vsc-statusbar)] px-4 [font-family:var(--font-data)] text-[11px] font-medium text-[var(--vsc-fg)]">
+    <footer className="relative flex h-7 shrink-0 items-center gap-[18px] border-t border-[var(--vsc-border)] bg-[var(--vsc-statusbar)] px-3.5 font-[family-name:var(--font-data)] text-[10.5px] font-medium text-[var(--vsc-fg-muted)]">
       <span className="flex items-center gap-1.5">
         {busy ? (
           <Loader2 size={11} strokeWidth={2.5} className="animate-spin text-[var(--vsc-accent)]" />

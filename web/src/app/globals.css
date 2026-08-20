@@ -90,17 +90,24 @@
   --vsc-sidebar: #0f0f11;
   --vsc-panel: #09090b;
   --vsc-statusbar: #09090b;
-  --vsc-border: #3f3f46;
+  --vsc-border: #1c1c1f; /* yumuşak bölücüler */
+  --vsc-border-input: #26262b; /* giriş kutuları, select, chip kenarı */
+  --vsc-border-ghost: #2e2e33; /* ghost buton kenarı */
   --vsc-fg: #d4d4d8;
-  --vsc-fg-muted: #a1a1aa;
+  --vsc-fg-muted: #8b8b94;
+  --vsc-fg-faint: #4b4b52; /* üçüncül metin — versiyon zaman damgası vb. */
   --vsc-fg-active: #ffffff;
-  --vsc-selected: #27272a;
-  --vsc-accent: #3d3bff;
+  --vsc-selected: #1c1c1f; /* genel seçili/dolgu zemin */
+  --vsc-selected-file: #1f1f24; /* yalnız sketch dosya listesinde seçili satır */
+  --vsc-accent: #4a48ff; /* buton dolgusu */
+  --vsc-accent-mono: #8f8eff; /* mono vurgu — commit hash, "ALGILANDI", "değiştir: ⌘K" */
+  --vsc-success: #34d399;
+  --vsc-gutter: #3b3b41;
 
   --vsc-editor-bg: #0f0f11;
   --vsc-editor-fg: #e4e4e7;
 
-  --vsc-syn-keyword: var(--vsc-accent);
+  --vsc-syn-keyword: var(--vsc-accent-mono);
   --vsc-syn-string: #e2b93b;
   --vsc-syn-comment: #71717a;
   --vsc-syn-number: #34d399;

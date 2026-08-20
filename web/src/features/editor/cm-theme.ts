@@ -29,11 +29,11 @@ export const cmTheme = EditorView.theme({
   },
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--vsc-accent)" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": {
-    backgroundColor: "rgba(61, 59, 255, 0.35)",
+    backgroundColor: "rgba(74, 72, 255, 0.35)",
   },
   ".cm-gutters": {
     backgroundColor: "var(--vsc-editor-bg)",
-    color: "var(--vsc-fg-muted)",
+    color: "var(--vsc-gutter)",
     border: "none",
     paddingRight: "4px",
   },

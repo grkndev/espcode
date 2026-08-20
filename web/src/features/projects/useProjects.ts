@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { apiFetch } from "@/lib/api-config";
 import type { SketchFile } from "@/features/editor/sketch-files";
+import type { LibraryDep } from "@/features/libraries/useLibraries";
 
 export type StorageProvider = "postgres" | "github";
 
@@ -29,10 +30,12 @@ export interface ProjectVersionSummary {
 export interface ProjectVersionDetail extends ProjectVersionSummary {
   projectId: string;
   files: SketchFile[];
+  libraries: LibraryDep[];
 }
 
 export interface ProjectDetail extends ProjectSummary {
   files: SketchFile[];
+  libraries: LibraryDep[];
   versions: ProjectVersionSummary[];
 }
 
@@ -66,11 +69,11 @@ export function useProjects() {
   }, []);
 
   const create = useCallback(
-    async (name: string, fqbn: string, files: SketchFile[]): Promise<string> => {
+    async (name: string, fqbn: string, files: SketchFile[], libraries: LibraryDep[] = []): Promise<string> => {
       const res = await apiFetch("/api/projects", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name, fqbn, files }),
+        body: JSON.stringify({ name, fqbn, files, libraries }),
       });
       const { id } = await json<{ id: string }>(res);
       await refresh();
@@ -88,7 +91,7 @@ export function useProjects() {
   );
 
   const update = useCallback(
-    async (id: string, patch: { name?: string; fqbn?: string; files?: SketchFile[] }) => {
+    async (id: string, patch: { name?: string; fqbn?: string; files?: SketchFile[]; libraries?: LibraryDep[] }) => {
       const res = await apiFetch(`/api/projects/${id}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
@@ -127,7 +130,7 @@ export function useProjects() {
   const commit = useCallback(
     async (
       id: string,
-      input: { message: string; files: SketchFile[]; fqbn: string; force?: boolean },
+      input: { message: string; files: SketchFile[]; fqbn: string; libraries: LibraryDep[]; force?: boolean },
     ): Promise<CommitResult> => {
       const res = await apiFetch(`/api/projects/${id}/commit`, {
         method: "POST",

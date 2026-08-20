@@ -9,6 +9,7 @@ import type { SketchFile } from "@/features/editor/sketch-files";
 import { serialSession } from "@/features/serial/SerialSession";
 import { flashFirmware, type FlashStage } from "@/features/flash/flasher";
 import { describeSerialError } from "@/lib/serial/errors";
+import type { LibraryDep } from "@/features/libraries/useLibraries";
 
 export type VersionSaved = "ok" | "conflict" | "link_broken" | "error" | null;
 export type BuildStatus = "idle" | "compiling" | "done" | "failed";
@@ -47,6 +48,7 @@ interface BuildStoreState {
     files: SketchFile[],
     fqbn: string,
     options: Record<string, string>,
+    libraries: LibraryDep[],
     projectId?: string,
     opts?: { notifyOnSuccess?: boolean },
   ) => Promise<BuildResult>;
@@ -54,6 +56,7 @@ interface BuildStoreState {
     files: SketchFile[],
     fqbn: string,
     options: Record<string, string>,
+    libraries: LibraryDep[],
     projectId: string | undefined,
     baud: number,
   ) => Promise<void>;
@@ -99,7 +102,7 @@ export const useBuildStore = create<BuildStoreState>()(
         flashStage: null,
         notifications: [],
 
-        compile: async (files, fqbn, options, projectId, opts) => {
+        compile: async (files, fqbn, options, libraries, projectId, opts) => {
           const notifyOnSuccess = opts?.notifyOnSuccess ?? true;
           set({ status: "compiling", log: "", diagnostics: [] });
 
@@ -120,7 +123,7 @@ export const useBuildStore = create<BuildStoreState>()(
             res = await apiFetch("/api/compile", {
               method: "POST", // master.plan.md §5 — projectId'nin işlenmesi için oturum çerezi gerekir
               headers: { "content-type": "application/json" },
-              body: JSON.stringify({ files, fqbn, options, projectId }),
+              body: JSON.stringify({ files, fqbn, options, libraries, projectId }),
             });
           } catch (err) {
             return fail(err instanceof Error ? err.message : "compile_request_failed");
@@ -204,13 +207,13 @@ export const useBuildStore = create<BuildStoreState>()(
           });
         },
 
-        compileAndFlash: async (files, fqbn, options, projectId, baud) => {
+        compileAndFlash: async (files, fqbn, options, libraries, projectId, baud) => {
           const port = serialSession.getPort();
           if (!port) return;
 
           let result: BuildResult;
           try {
-            result = await get().compile(files, fqbn, options, projectId, { notifyOnSuccess: false });
+            result = await get().compile(files, fqbn, options, libraries, projectId, { notifyOnSuccess: false });
           } catch {
             return; // compile() zaten kendi hata toast'ını/bildirimini bastı
           }

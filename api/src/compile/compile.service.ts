@@ -12,6 +12,8 @@ import { computeBuildKey } from './build-key';
 import { CompileRequestDto } from './dto/compile-request.dto';
 import { BuildsService } from '../builds/builds.service';
 import { ProjectsService } from '../projects/projects.service';
+import { LibraryStoreService } from '../libraries/library-store.service';
+import type { LibraryDep } from '../projects/storage/project-storage';
 
 export interface CompileJobResult {
   ok: boolean;
@@ -26,6 +28,15 @@ interface CompileJobData {
   files: { path: string; content: string }[];
   fqbn: string;
   options: Record<string, string>;
+  // Kütüphane isim/sürümleri DEĞİL — CompileService.compile()'ın çözdüğü
+  // ("<slug>@<version>" dizin adları, dolaylı bağımlılıklar dahil) nihai
+  // liste. worker.js bunu doğrudan LIBRARY_ROOT altında arar, build key de
+  // bundan hesaplanır.
+  libraries: string[];
+  // Kullanıcının doğrudan istediği isim/sürüm çiftleri (dolaylı bağımlılıklar
+  // HARİÇ) — yalnızca autoCommit'in sketch.yaml'a yazacağı liste için
+  // taşınıyor; derlemenin kendisi yalnızca yukarıdaki `libraries`i kullanır.
+  requestedLibraries: LibraryDep[];
   // projectId/userId artık job'ın kendisinde taşınıyor — persist işlemi
   // hangi SSE bağlantısının o an dinlediğinden bağımsız hale geldi (bkz.
   // ensureJobResult).
@@ -72,6 +83,7 @@ export class CompileService implements OnModuleDestroy {
   constructor(
     private readonly builds: BuildsService,
     private readonly projects: ProjectsService,
+    private readonly libraryStore: LibraryStoreService,
   ) {
     const redisUrl = process.env.REDIS_URL;
     if (!redisUrl) throw new Error('REDIS_URL tanımlı değil');
@@ -99,12 +111,35 @@ export class CompileService implements OnModuleDestroy {
   }
 
   async compile(dto: CompileRequestDto, userId: string | null) {
-    const buildKey = computeBuildKey(dto.files, dto.fqbn, dto.options ?? {});
+    // Cache'e bakmadan ÖNCE — hem güvenlik ağı (volume budandıysa/taşındıysa
+    // yeniden indirir) hem de dolaylı bağımlılıkları çözen tek yer. Sonuç
+    // build key'e ve job payload'ına giriyor.
+    const resolvedLibraries = await this.libraryStore.ensureInstalled(
+      dto.libraries ?? [],
+    );
+    const libraryDirs = resolvedLibraries.map((r) => r.dir);
+
+    const buildKey = computeBuildKey(
+      dto.files,
+      dto.fqbn,
+      dto.options ?? {},
+      libraryDirs,
+    );
 
     const cached = await this.connection.get(`build:${buildKey}`);
     if (cached) {
       const result = JSON.parse(cached) as CompileJobResult;
-      const versionSaved = await this.persist(result, buildKey, dto, userId);
+      const versionSaved = await this.persist(
+        result,
+        buildKey,
+        {
+          files: dto.files,
+          fqbn: dto.fqbn,
+          projectId: dto.projectId,
+          libraries: dto.libraries ?? [],
+        },
+        userId,
+      );
       return { cached: true, buildKey, ...result, versionSaved };
     }
 
@@ -120,6 +155,8 @@ export class CompileService implements OnModuleDestroy {
         files: dto.files,
         fqbn: dto.fqbn,
         options: dto.options ?? {},
+        libraries: libraryDirs,
+        requestedLibraries: dto.libraries ?? [],
         projectId: dto.projectId,
         userId,
       } satisfies CompileJobData,
@@ -142,7 +179,12 @@ export class CompileService implements OnModuleDestroy {
   private async persist(
     result: CompileJobResult,
     buildKey: string,
-    dto: Pick<CompileRequestDto, 'files' | 'fqbn' | 'projectId'>,
+    dto: {
+      files: Pick<CompileRequestDto, 'files'>['files'];
+      fqbn: string;
+      projectId?: string;
+      libraries: LibraryDep[];
+    },
     userId: string | null,
   ): Promise<VersionSaved> {
     if (!result.ok || !result.binBase64) return null;
@@ -164,6 +206,7 @@ export class CompileService implements OnModuleDestroy {
         dto.projectId,
         dto.files,
         dto.fqbn,
+        dto.libraries ?? [],
         buildKey,
       );
       if (!commitResult) return null;
@@ -207,7 +250,12 @@ export class CompileService implements OnModuleDestroy {
 
         const result = job.returnvalue as CompileJobResult;
         const data = job.data as CompileJobData;
-        const buildKey = computeBuildKey(data.files, data.fqbn, data.options);
+        const buildKey = computeBuildKey(
+          data.files,
+          data.fqbn,
+          data.options,
+          data.libraries,
+        );
 
         let versionSaved: VersionSaved = null;
         if (result.ok) {
@@ -222,7 +270,12 @@ export class CompileService implements OnModuleDestroy {
           versionSaved = await this.persist(
             result,
             buildKey,
-            data,
+            {
+              files: data.files,
+              fqbn: data.fqbn,
+              projectId: data.projectId,
+              libraries: data.requestedLibraries,
+            },
             data.userId,
           );
         }

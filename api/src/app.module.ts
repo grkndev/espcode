@@ -6,6 +6,7 @@ import { AuthMiddleware } from './auth/auth.middleware';
 import { ProjectsModule } from './projects/projects.module';
 import { BuildsModule } from './builds/builds.module';
 import { GithubModule } from './github/github.module';
+import { LibrariesModule } from './libraries/libraries.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { GithubModule } from './github/github.module';
     GithubModule,
     ProjectsModule,
     BuildsModule,
+    LibrariesModule,
     CompileModule,
   ],
 })

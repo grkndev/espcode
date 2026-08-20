@@ -25,7 +25,7 @@ function Command({
     <CommandPrimitive
       data-slot="command"
       className={cn(
-        "flex size-full flex-col overflow-hidden rounded-4xl bg-popover p-1 text-popover-foreground",
+        "flex size-full flex-col overflow-hidden rounded-[14px] bg-popover p-1 text-popover-foreground",
         className
       )}
       {...props}
@@ -55,7 +55,7 @@ function CommandDialog({
       </DialogHeader>
       <DialogContent
         className={cn(
-          "top-1/3 translate-y-0 overflow-hidden rounded-3xl! p-0 border-2",
+          "top-1/5 translate-y-0 overflow-hidden rounded-[14px]! border p-0",
           className
         )}
         showCloseButton={showCloseButton}
@@ -72,8 +72,8 @@ function CommandInput({
   ...props
 }: React.ComponentProps<typeof CommandPrimitive.Input> & { endAddon?: React.ReactNode }) {
   return (
-    <div data-slot="command-input-wrapper" className="p-2 border-b">
-      <InputGroup className="h-12 bg-transparent border-none">
+    <div data-slot="command-input-wrapper" className="border-b p-0">
+      <InputGroup className="h-[46px] rounded-none border-none bg-transparent px-4">
         <CommandPrimitive.Input
           data-slot="command-input"
           className={cn(
@@ -83,7 +83,7 @@ function CommandInput({
           {...props}
         />
         <InputGroupAddon>
-          <SearchIcon className="size-5 shrink-0 opacity-50" />
+          <SearchIcon className="size-[15px] shrink-0 opacity-50" />
         </InputGroupAddon>
         {endAddon && <InputGroupAddon align="inline-end">{endAddon}</InputGroupAddon>}
       </InputGroup>

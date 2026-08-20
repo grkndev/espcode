@@ -139,7 +139,15 @@ engelliyor. `ide-builder` yalnızca bu ağda olduğu için:
 - Derleme sırasında `#pragma` / build script hilesiyle dışarı veri sızdırma yolu yok
 - Kullanıcı kaynağının rastgele bir URL'den kod çekmesi mümkün değil
 - Kütüphane indirme gibi meşru ihtiyaçlar da kapalı → kütüphaneler önceden kurulmalı
-  (istenen davranış)
+  (istenen davranış). Bunu çözen katman `ide-builder`'ın DIŞINDA yaşıyor:
+  `ide-api` (yukarıdaki gibi `edge-net`'te, interneti olan tek servis) Arduino
+  kayıt defterini (downloads.arduino.cc/libraries) indirip her paketin
+  SHA-256'sını doğrular, `ide_libraries` adlı ayrı bir volume'a açar.
+  `ide-builder` bu volume'u `/opt/libs` altında **salt-okunur** mount eder ve
+  derleme argümanına yalnızca önceden doğrulanmış, diskte var olduğu
+  onaylanmış dizin yollarını (`--library`) ekler — kendisi asla bir URL'ye
+  dokunmaz, `internal: true` izolasyonu bozulmaz (bkz. `api/src/libraries/`,
+  `builder/src/worker.js`).
 
 `ide-api` iki ağda birden: nginx'ten erişilebilir olması için `proxy-net`, kuyruğa
 erişmek için `ide-net`.

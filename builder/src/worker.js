@@ -3,6 +3,7 @@ import IORedis from "ioredis";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, writeFile, rm, stat, readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -12,6 +13,12 @@ const REDIS_URL = process.env.REDIS_URL;
 const BUILD_TIMEOUT_SEC = Number(process.env.BUILD_TIMEOUT_SEC ?? "120");
 const COMPILE_JOBS = process.env.COMPILE_JOBS ?? "2";
 const WORK_ROOT = "/work";
+// ide_libraries volume'unun salt-okunur mount noktası — ide-api'nin indirip
+// doğruladığı kütüphaneler burada, "<slug>@<version>" adlı bir alt dizin
+// olarak yaşar (docs/backend.plan.md §3.1: builder'ın kendisi hiç ağa çıkmaz).
+const LIBRARY_ROOT = process.env.LIBRARY_ROOT ?? "/opt/libs";
+const LIBRARY_DIR_RE = /^[A-Za-z0-9._-]+@[A-Za-z0-9._-]+$/;
+const MAX_LIBRARIES = 20;
 
 // backend.plan.md §7.3 — kullanıcıdan gelen hiçbir string derleme komut
 // satırına doğrudan geçmez; FQBN sabit bir allowlist'ten seçilir.
@@ -52,13 +59,33 @@ function validateFiles(files) {
   return null;
 }
 
+// api/src/compile/compile.service.ts'in çözdüğü "<slug>@<version>" dizin
+// adları — burada tekrar doğrulanıyor çünkü worker.js kendi güvenlik
+// sınırının içinde hiçbir girdiye güvenmiyor (api zaten aynı kuralı
+// LibraryDepDto'da uyguluyor, ama execFile argümanına giden son nokta burası).
+function validateLibraries(libraries) {
+  if (!Array.isArray(libraries)) return "invalid_libraries";
+  if (libraries.length > MAX_LIBRARIES) return "too_many_libraries";
+  for (const dir of libraries) {
+    if (typeof dir !== "string" || !LIBRARY_DIR_RE.test(dir)) return "invalid_library_dir";
+  }
+  return null;
+}
+
 // backend.plan.md §7.3 — kaynak dosyaya yazılır, komut satırına değil;
 // execFile kullanılır (shell yorumlaması yok).
-async function compileJob({ files, fqbn, options }) {
+async function compileJob({ files, fqbn, options, libraries }) {
   const invalid = validateFiles(files);
   if (invalid) return { ok: false, error: invalid };
   if (!ALLOWED_FQBN.has(fqbn)) {
     return { ok: false, error: "unsupported_board" };
+  }
+  const librariesInvalid = validateLibraries(libraries ?? []);
+  if (librariesInvalid) return { ok: false, error: librariesInvalid };
+
+  const libraryPaths = (libraries ?? []).map((dir) => path.join(LIBRARY_ROOT, dir));
+  for (const libPath of libraryPaths) {
+    if (!existsSync(libPath)) return { ok: false, error: "library_missing" };
   }
 
   const jobDir = path.join(WORK_ROOT, randomUUID());
@@ -86,6 +113,13 @@ async function compileJob({ files, fqbn, options }) {
         // ofsetlerde birleştirir, 0x0'dan tek parça yazılabilir (frontend
         // Faz 1'de doğrulanmış yol).
         "--export-binaries",
+        // --library (tekil): her yol DOĞRUDAN bir kütüphanenin kökü —
+        // "<slug>@<version>" dizini zip'ten çıkarılırken zaten tam bu şekilde
+        // düzleştirildi (bkz. api/src/libraries/library-store.service.ts).
+        // --libraries (çoğul) burada YANLIŞ olurdu: o, alt dizinlerinin HER
+        // BİRİNİN ayrı bir kütüphane olduğu bir KOLEKSİYON dizini bekliyor —
+        // canlı `arduino-cli compile --help` ile doğrulandı.
+        ...(libraryPaths.length ? ["--library", libraryPaths.join(",")] : []),
         sketchDir,
       ],
       { timeout: BUILD_TIMEOUT_SEC * 1000, maxBuffer: 16 * 1024 * 1024 },

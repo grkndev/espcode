@@ -3,6 +3,11 @@ import { GithubAppService, GithubApiError } from './github-app.service';
 import { GithubLinkBrokenError } from './github-errors';
 import type { Project } from '../generated/prisma/client';
 import type { SketchFileInput } from '../projects/projects.service';
+import {
+  renderSketchYaml,
+  parseSketchYaml,
+  type LibraryDep,
+} from '../projects/storage/sketch-yaml';
 import type {
   CommitInput,
   CommitResult,
@@ -52,15 +57,6 @@ function toRepoFileName(dir: string, editorPath: string): string {
 
 function toEditorFileName(dir: string, repoFileName: string): string {
   return repoFileName === `${dir}.ino` ? PRIMARY_FILE : repoFileName;
-}
-
-function renderSketchYaml(fqbn: string): string {
-  return `default_fqbn: ${fqbn}\n`;
-}
-
-function parseSketchYamlFqbn(content: string): string | null {
-  const match = content.match(/^default_fqbn:\s*(\S+)\s*$/m);
-  return match ? match[1] : null;
 }
 
 // master.plan.md §3.1 — proje bazlı GitHub depolama. Gerçek kaynak repo;
@@ -181,9 +177,11 @@ export class GithubStorageService implements ProjectStorage {
     });
   }
 
-  async readFiles(
-    project: Project,
-  ): Promise<{ files: SketchFileInput[]; fqbn: string }> {
+  async readFiles(project: Project): Promise<{
+    files: SketchFileInput[];
+    fqbn: string;
+    libraries: LibraryDep[];
+  }> {
     const { installationId, repo, branch, dir } = this.ctx(project);
     const entries = await this.listDirEntries(
       installationId,
@@ -195,6 +193,7 @@ export class GithubStorageService implements ProjectStorage {
 
     const files: SketchFileInput[] = [];
     let fqbn: string | null = null;
+    let libraries: LibraryDep[] = [];
     for (const entry of entries) {
       if (entry.type !== 'file') continue;
       const content = await this.readFileAt(
@@ -204,12 +203,14 @@ export class GithubStorageService implements ProjectStorage {
         branch,
       );
       if (entry.name === SKETCH_YAML) {
-        fqbn = parseSketchYamlFqbn(content);
+        const parsed = parseSketchYaml(content);
+        fqbn = parsed?.fqbn ?? null;
+        libraries = parsed?.libraries ?? [];
         continue;
       }
       files.push({ path: toEditorFileName(dir, entry.name), content });
     }
-    return { files, fqbn: fqbn ?? project.fqbn };
+    return { files, fqbn: fqbn ?? project.fqbn, libraries };
   }
 
   // GitHub gerçekten depolama — flash edilmeyen ara taslak için ayrı bir yer
@@ -224,7 +225,10 @@ export class GithubStorageService implements ProjectStorage {
     const wanted = [
       {
         repoPath: `${dir}/${SKETCH_YAML}`,
-        content: renderSketchYaml(input.fqbn),
+        content: renderSketchYaml({
+          fqbn: input.fqbn,
+          libraries: input.libraries,
+        }),
       },
       ...input.files.map((f) => ({
         repoPath: `${dir}/${toRepoFileName(dir, f.path)}`,
@@ -374,6 +378,7 @@ export class GithubStorageService implements ProjectStorage {
 
     const files: SketchFileInput[] = [];
     let fqbn: string | null = null;
+    let libraries: LibraryDep[] = [];
     for (const entry of entries) {
       if (entry.type !== 'file') continue;
       const content = await this.readFileAt(
@@ -383,7 +388,9 @@ export class GithubStorageService implements ProjectStorage {
         versionId,
       );
       if (entry.name === SKETCH_YAML) {
-        fqbn = parseSketchYamlFqbn(content);
+        const parsed = parseSketchYaml(content);
+        fqbn = parsed?.fqbn ?? null;
+        libraries = parsed?.libraries ?? [];
         continue;
       }
       files.push({ path: toEditorFileName(dir, entry.name), content });
@@ -410,6 +417,7 @@ export class GithubStorageService implements ProjectStorage {
         : null,
       url: commit.html_url,
       files,
+      libraries,
     };
   }
 }

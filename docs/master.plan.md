@@ -575,7 +575,11 @@ geri yükle → `.bin` indir. Bu zincirin tamamı çalışıyorsa Faz 6 bitmişt
 ---
 
 ## 12. Bu planın kapsamadıkları (bilinçli)
-- **Kullanıcı kütüphanesi yükleme** — builder ağ izolasyonuyla temelden çelişir
+- **Kullanıcı kütüphanesi yükleme** — ~~builder ağ izolasyonuyla temelden çelişir~~
+  artık destekleniyor: `ide-api` (interneti olan tek servis) Arduino kayıt
+  defterini indirip doğrular, `ide_libraries` volume'una açar; `ide-builder`
+  bu volume'u yalnızca salt-okunur okur, kendisi hâlâ hiçbir ağa çıkmaz
+  (bkz. `api/src/libraries/`, `backend.plan.md` §3.1)
 - **İşbirlikçi düzenleme** — CRDT altyapısı portföy ölçeğinde orantısız
 - **clangd/LSP** — statik tamamlama listesi (`frontend.plan.md` §8.4) ilk sürüm için yeter
 - **Mobil destek** — Web Serial yok, olmayacak

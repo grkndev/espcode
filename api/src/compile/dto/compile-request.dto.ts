@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  IsArray,
   IsIn,
   IsObject,
   IsOptional,
@@ -11,6 +12,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { ALLOWED_FQBN } from '../allowed-fqbn';
+import { LibraryDepDto } from '../../libraries/dto/library-dep.dto';
 
 // frontend.plan.md §3.2 — düz dosya adı, izin verilen uzantı (worker.js'in
 // FILE_NAME_RE'siyle aynı).
@@ -50,6 +52,17 @@ export class CompileRequestDto {
   @IsOptional()
   @IsString()
   projectId?: string;
+
+  // Kütüphane desteği — CompileService.compile() cache'e bakmadan önce
+  // ensureInstalled() ile çözer; derlemeye giden gerçek liste (dolaylı
+  // bağımlılıklar dahil) build key'e ve worker.js'e buradan değil,
+  // CompileService'in ürettiği çözülmüş listeden gider.
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => LibraryDepDto)
+  @ArrayMaxSize(20)
+  libraries?: LibraryDepDto[];
 }
 
 export function totalSourceBytes(files: SketchFileDto[]): number {

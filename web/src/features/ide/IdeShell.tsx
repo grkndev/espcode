@@ -12,12 +12,14 @@ import { useBuildStore } from "@/features/build/useBuildStore";
 import { useAuth } from "@/features/auth/useAuth";
 import ProjectsPanel, { type PendingGithubInstall } from "@/features/projects/ProjectsPanel";
 import { useProjects } from "@/features/projects/useProjects";
+import LibrariesPanel from "@/features/libraries/LibrariesPanel";
+import { useLibraries, type LibraryDep } from "@/features/libraries/useLibraries";
 import { describeSerialError } from "@/lib/serial/errors";
 import { type TerminalHandle } from "@/features/monitor/Terminal";
 import { type PlotterHandle } from "@/features/plotter/Plotter";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import Editor from "@/features/editor/Editor";
-import FileTree from "@/features/editor/FileTree";
+import WorkspacePanel from "./WorkspacePanel";
 import TabBar from "@/features/editor/TabBar";
 import Breadcrumb from "@/features/editor/Breadcrumb";
 import {
@@ -28,6 +30,7 @@ import {
   addFile,
   removeFile,
 } from "@/features/editor/sketch-files";
+import { loadDraft, saveDraft, clearDraft, draftsEqual, type Draft } from "@/features/editor/local-draft";
 import TopBar from "./TopBar";
 import { BOARDS } from "./board-match";
 import { defaultOptionValues } from "./board-options";
@@ -49,6 +52,16 @@ const LINE_ENDINGS: Record<LineEnding, string> = {
   crlf: "\r\n",
 };
 
+// "?project=" ile açılan bir proje varsa onun kendi yükleme yolu (bkz.
+// handleActivateProject) taslağı zaten uygulayacak — burada yalnızca hiç
+// proje aktive edilmemiş ("unsaved") durumun ilk render'dan itibaren doğru
+// başlaması için, useState lazy initializer içinde bir kez okunur.
+function initialUnsavedDraft(): Draft | null {
+  if (typeof window === "undefined") return null;
+  if (new URLSearchParams(window.location.search).get("project")) return null;
+  return loadDraft(null);
+}
+
 export default function IdeShell() {
   const support = checkSerialSupport();
   const { state, chipInfo, error, connecting, connect, setChipInfo, setError } =
@@ -57,17 +70,18 @@ export default function IdeShell() {
   const auth = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { loadProject } = useProjects();
+  const { loadProject, getVersion, projects, refresh: refreshProjects } = useProjects();
+  const { install: installLibrary } = useLibraries();
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [pendingGithubInstall, setPendingGithubInstall] = useState<PendingGithubInstall | null>(
     null,
   );
 
-  const [fqbn, setFqbn] = useState(BOARDS[0].fqbn); // esp32:esp32:esp32s3
+  const [fqbn, setFqbn] = useState(() => initialUnsavedDraft()?.fqbn ?? BOARDS[0].fqbn);
   const [boardOptions, setBoardOptions] = useState<Record<string, string>>(() =>
-    defaultOptionValues(BOARDS[0].fqbn),
+    defaultOptionValues(initialUnsavedDraft()?.fqbn ?? BOARDS[0].fqbn),
   );
-  const [sidePanel, setSidePanel] = useState<SidePanel | null>("library");
+  const [sidePanel, setSidePanel] = useState<SidePanel | null>("files");
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [bottomTab, setBottomTab] = useState("monitor");
   const [boardDialogOpen, setBoardDialogOpen] = useState(false);
@@ -81,9 +95,18 @@ export default function IdeShell() {
   const [boardHintDismissed, setBoardHintDismissed] = useState(false);
 
   // frontend.plan.md §3.2 — çoklu dosya sketch modeli
-  const [files, setFiles] = useState<SketchFile[]>(createDefaultSketch);
+  const [files, setFiles] = useState<SketchFile[]>(() => initialUnsavedDraft()?.files ?? createDefaultSketch());
   const [openPaths, setOpenPaths] = useState<string[]>([PRIMARY_FILE]);
   const [activePath, setActivePath] = useState(PRIMARY_FILE);
+  // Kütüphane desteği — files/fqbn ile aynı yaşam döngüsü: proje aktive
+  // edilince/versiyon geri yüklenince birlikte değişir, sketch.yaml'a gömülü
+  // olarak kalıcılaşır (bkz. api/src/projects/storage/sketch-yaml.ts).
+  const [libraries, setLibraries] = useState<LibraryDep[]>(() => initialUnsavedDraft()?.libraries ?? []);
+  // Commit'lenmemiş yerel taslak: son sunucudan/versiyon geçmişinden bilinen
+  // hâl (autoCommit/commit sonrası veya proje yüklendiğinde) burada tutulur —
+  // files/fqbn/libraries bundan sapınca ActivityBar'da nokta gösterilir.
+  const lastSyncedRef = useRef<Draft | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const [logLines, setLogLines] = useState<string[]>([]);
   const [syncFailCount, setSyncFailCount] = useState(0);
@@ -98,11 +121,30 @@ export default function IdeShell() {
   const plotterRef = useRef<PlotterHandle>(null);
   const pendingLineRef = useRef("");
 
+  // WorkspacePanel'in "VERSİYON GEÇMİŞİ" bölümü storageProvider'a göre hash/vN
+  // biçimini seçiyor — ProjectsPanel'den bağımsız kendi useProjects() örneği
+  // (Dashboard.tsx'teki gibi, bu kod tabanında yerleşik desen).
+  useEffect(() => {
+    if (auth.user) void refreshProjects();
+  }, [auth.user, refreshProjects]);
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
+
   const isMonitoring = state === "monitoring";
   const isConnected = state !== "disconnected";
   // files boşsa (normalde olmamalı — handleActivateProject bunu engelliyor)
   // activeFile.content okuması IDE'yi çökertmesin diye boş bir dosyaya düşülür.
   const activeFile = files.find((f) => f.path === activePath) ?? files[0] ?? { path: PRIMARY_FILE, content: "" };
+
+  // Her değişiklikte localStorage'a aynala (bkz. local-draft.ts) — sayfa
+  // yenilenince/kapatılıp açılınca commit edilmemiş kod kaybolmasın. Aynı
+  // geçişte lastSyncedRef'e göre "kaydedilmemiş değişiklik var mı" da
+  // hesaplanır (ActivityBar'daki nokta göstergesi).
+  useEffect(() => {
+    const current: Draft = { files, fqbn, libraries };
+    saveDraft(activeProjectId, current);
+    const baseline = lastSyncedRef.current;
+    setHasUnsavedChanges(activeProjectId !== null && baseline !== null && !draftsEqual(current, baseline));
+  }, [files, fqbn, libraries, activeProjectId]);
 
   const appendLog = (line: string) => setLogLines((prev) => [...prev.slice(-199), line]);
 
@@ -142,7 +184,7 @@ export default function IdeShell() {
     void loadProject(projectId)
       .then((detail) => {
         if (cancelled) return;
-        handleActivateProject(projectId, detail.files, detail.fqbn);
+        handleActivateProject(projectId, detail.files, detail.fqbn, detail.libraries);
       })
       .catch(() => {
         if (cancelled) return;
@@ -173,14 +215,19 @@ export default function IdeShell() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- yalnızca URL'deki github/installation/project param'ları değiştiğinde tekrar çalışsın
   }, [searchParams]);
 
-  // Komut paleti — cmdk zaten BoardPickerDialog için kurulu, burada global
-  // ⌘K/Ctrl+K ile açılıyor. Tarayıcının kendi Ctrl+K'sı (adres çubuğu arama)
-  // bazı tarayıcılarda çakışabildiği için preventDefault ediliyor.
+  // design_handoff Etkileşim — "⌘K: her yerde kart seçiciyi açar". Genel
+  // komut paletinin eski ⌘K bağı ⌘⇧K'ya taşındı (VSCode'un "command
+  // palette" alışkanlığına yakın), TopBar'daki ⌘K rozeti artık yalnızca
+  // kart seçiciyi işaret ediyor. Tarayıcının kendi kısayollarıyla çakışmasın
+  // diye her iki kombinasyon da preventDefault ediliyor.
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key.toLowerCase() === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
+      if (e.key.toLowerCase() !== "k" || !(e.metaKey || e.ctrlKey)) return;
+      e.preventDefault();
+      if (e.shiftKey) {
         setCommandPaletteOpen((v) => !v);
+      } else {
+        setBoardDialogOpen((v) => !v);
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -257,14 +304,56 @@ export default function IdeShell() {
     handleCloseTab(path);
   }
 
+  // Arduino IDE'nin "Sketch > Include Library" davranışı — kütüphane
+  // eklenince sketch.ino'nun başına #include satırı yazılır (zaten varsa
+  // tekrar eklenmez). Kaldırma satırı geri almıyor — Arduino IDE de almıyor.
+  async function handleAddLibrary(name: string, version: string) {
+    const resolved = await installLibrary(name, version);
+    setLibraries((prev) => [...prev.filter((l) => l.name !== name), { name, version }]);
+
+    const header = resolved.find((r) => r.name === name)?.includes[0];
+    if (!header) return;
+    const line = `#include <${header}>`;
+    setFiles((prev) => {
+      const primary = prev.find((f) => f.path === PRIMARY_FILE);
+      if (!primary || primary.content.includes(line)) return prev;
+      return updateFileContent(prev, PRIMARY_FILE, `${line}\n${primary.content}`);
+    });
+  }
+
+  function handleRemoveLibrary(name: string) {
+    setLibraries((prev) => prev.filter((l) => l.name !== name));
+  }
+
   function handleSelectPanel(panel: SidePanel) {
     setSidePanel((prev) => (prev === panel ? null : panel));
+  }
+
+  // ProjectsPanel.tsx'teki handleRestore ile aynı yol — WorkspacePanel'in
+  // hızlı-bakış versiyon listesinden de aynı geri yükleme çalışsın diye.
+  // discardDraft: true — kullanıcı bilerek eski bir versiyona dönüyor,
+  // o proje için bekleyen yerel taslak varsa üzerine yazmadan atılır.
+  async function handleRestoreVersion(versionId: string) {
+    if (!activeProjectId) return;
+    const version = await getVersion(activeProjectId, versionId);
+    handleActivateProject(version.projectId, version.files, version.fqbn ?? undefined, version.libraries, {
+      discardDraft: true,
+    });
   }
 
   // master.plan.md §6 — proje oluşturma/yükleme/versiyon geri yükleme, hepsi
   // aynı yoldan geçer: editör içeriğini değiştirir + hangi projenin aktif
   // olduğunu işaretler (sonraki "Derle ve Yükle" o projeye versiyon yazar).
-  function handleActivateProject(id: string | null, newFiles?: SketchFile[], newFqbn?: string) {
+  // Bu proje için commit edilmemiş yerel bir taslak varsa (local-draft.ts),
+  // sunucudan gelen (son commit'lenmiş) hâlin üzerine uygulanır — refresh'te
+  // kaybolan kod sorununun çözümü. discardDraft:true bunu atlar (bkz. yukarı).
+  function handleActivateProject(
+    id: string | null,
+    newFiles?: SketchFile[],
+    newFqbn?: string,
+    newLibraries?: LibraryDep[],
+    opts?: { discardDraft?: boolean },
+  ) {
     setActiveProjectId(id);
     if (newFiles && newFiles.length === 0) {
       // GitHub'a bağlı projelerde sketch.yaml + her dosya ayrı commit olarak
@@ -276,12 +365,25 @@ export default function IdeShell() {
         description: "Muhtemelen ara bir commit — geri yükleme atlandı.",
       });
     } else if (newFiles) {
-      setFiles(newFiles);
-      const stillOpen = newFiles.some((f) => f.path === activePath);
+      const baseline: Draft = { files: newFiles, fqbn: newFqbn ?? fqbn, libraries: newLibraries ?? [] };
+      lastSyncedRef.current = baseline;
+      if (opts?.discardDraft) clearDraft(id);
+      const draft = opts?.discardDraft ? null : loadDraft(id);
+      const effective = draft ?? baseline;
+
+      setFiles(effective.files);
+      setLibraries(effective.libraries);
+      setFqbn(effective.fqbn);
+      setBoardOptions(defaultOptionValues(effective.fqbn));
+      if (draft) {
+        toast.info("Kaydedilmemiş değişiklikler geri yüklendi", {
+          description: "Bu proje için commit edilmemiş yerel bir taslak bulundu.",
+        });
+      }
+      const stillOpen = effective.files.some((f) => f.path === activePath);
       setOpenPaths(stillOpen ? [activePath] : [PRIMARY_FILE]);
       setActivePath(stillOpen ? activePath : PRIMARY_FILE);
-    }
-    if (newFqbn) {
+    } else if (newFqbn) {
       setFqbn(newFqbn);
       setBoardOptions(defaultOptionValues(newFqbn));
     }
@@ -296,7 +398,7 @@ export default function IdeShell() {
   async function handleCompile() {
     setTerminalOpen(true);
     setBottomTab("build");
-    await build.compile(files, fqbn, boardOptions).catch(() => {});
+    await build.compile(files, fqbn, boardOptions, libraries).catch(() => {});
   }
 
   // frontend.plan.md §8 — Faz 5: derle (POST /api/compile + SSE) → merged.bin'i
@@ -308,7 +410,7 @@ export default function IdeShell() {
     // §6 "Flash sonrası versiyon kaydı" — yalnızca girişliyken ve aktif proje
     // varken; "Derle" (yalnızca doğrula) bu satırı hiç göndermiyor.
     const projectId = auth.user && activeProjectId ? activeProjectId : undefined;
-    await build.compileAndFlash(files, fqbn, boardOptions, projectId, baud);
+    await build.compileAndFlash(files, fqbn, boardOptions, libraries, projectId, baud);
   }
 
   function handleClearMonitor() {
@@ -394,7 +496,7 @@ export default function IdeShell() {
   if (!support.ok) {
     return (
       <div className="flex h-dvh items-center justify-center bg-[var(--vsc-activitybar)] p-8">
-        <div className="max-w-md rounded-md border border-[var(--vsc-border)] bg-[var(--vsc-sidebar)] px-4 py-3 text-sm text-[var(--vsc-fg-muted)]">
+        <div className="max-w-md rounded-[6px] border border-[var(--vsc-border)] bg-[var(--vsc-sidebar)] px-4 py-3 text-sm text-[var(--vsc-fg-muted)]">
           {support.reason === "no_api"
             ? "Bu tarayıcı karta yazmayı desteklemiyor. Chrome, Edge veya Firefox 151+ kullan — ya da .bin dosyasını indirip kendi aracınla yaz."
             : "Karta yazmak için güvenli bağlantı gerekiyor. Adresi https:// ile aç."}
@@ -425,7 +527,6 @@ export default function IdeShell() {
         flashing={build.flashing}
         onCompile={handleCompile}
         onCompileAndFlash={handleCompileAndFlash}
-        onOpenCommandPalette={() => setCommandPaletteOpen(true)}
       />
 
       {/* Kart hiç bağlanmadıysa engelleyici olmayan, kapatılabilir bir
@@ -455,19 +556,23 @@ export default function IdeShell() {
           user={auth.user}
           onLogin={auth.login}
           onLogout={auth.logout}
+          dirty={hasUnsavedChanges}
         />
 
         <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1">
           {sidePanel && (
             <>
               <ResizablePanel defaultSize="18" minSize="14" maxSize="30">
-                {sidePanel === "library" && (
-                  <FileTree
+                {sidePanel === "files" && (
+                  <WorkspacePanel
                     files={files}
                     activePath={activePath}
-                    onOpen={handleOpenFile}
-                    onAdd={handleAddFile}
-                    onRemove={handleRemoveFile}
+                    onOpenFile={handleOpenFile}
+                    onAddFile={handleAddFile}
+                    onRemoveFile={handleRemoveFile}
+                    activeProjectId={activeProjectId}
+                    storageProvider={activeProject?.storageProvider ?? null}
+                    onRestoreVersion={(id) => void handleRestoreVersion(id)}
                   />
                 )}
                 {sidePanel === "projects" && (
@@ -478,18 +583,29 @@ export default function IdeShell() {
                     onLogout={auth.logout}
                     files={files}
                     fqbn={fqbn}
+                    libraries={libraries}
                     activeProjectId={activeProjectId}
                     onActivate={handleActivateProject}
+                    onSaved={(id, savedFiles, savedFqbn, savedLibraries) => {
+                      lastSyncedRef.current = { files: savedFiles, fqbn: savedFqbn, libraries: savedLibraries };
+                      clearDraft(id);
+                      setHasUnsavedChanges(false);
+                    }}
                     pendingGithubInstall={pendingGithubInstall}
                     onConsumePendingGithubInstall={() => setPendingGithubInstall(null)}
                   />
                 )}
+                {sidePanel === "libraries" && (
+                  <LibrariesPanel libraries={libraries} onAdd={handleAddLibrary} onRemove={handleRemoveLibrary} />
+                )}
                 {sidePanel === "settings" && (
                   <SettingsPanel
                     fqbn={fqbn}
+                    connected={isConnected}
                     chipInfo={chipInfo}
                     boardOptions={boardOptions}
                     onOptionChange={handleOptionChange}
+                    onOpenBoardPicker={() => setBoardDialogOpen(true)}
                   />
                 )}
                 {sidePanel === "editor" && (

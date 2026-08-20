@@ -1,5 +1,8 @@
 import type { Project } from '../../generated/prisma/client';
 import type { SketchFileInput } from '../projects.service';
+import type { LibraryDep } from './sketch-yaml';
+
+export type { LibraryDep };
 
 // master.plan.md §3.1 — proje bazlı depolama sağlayıcısı soyutlaması.
 // 'postgres': project_versions tablosu gerçek kaynak. 'github': bağlı repo
@@ -18,11 +21,13 @@ export interface VersionSummary {
 export interface VersionDetail extends VersionSummary {
   projectId: string;
   files: SketchFileInput[];
+  libraries: LibraryDep[];
 }
 
 export interface CommitInput {
   files: SketchFileInput[];
   fqbn: string;
+  libraries: LibraryDep[];
   message: string;
   buildKey: string | null;
   /** sha çakışmasında üzerine yaz — kullanıcı onayından sonra tekrar gönderilir. */
@@ -35,14 +40,17 @@ export type CommitResult =
   | { ok: false; reason: 'link_broken' };
 
 export interface ProjectStorage {
-  readFiles(
-    project: Project,
-  ): Promise<{ files: SketchFileInput[]; fqbn: string }>;
+  readFiles(project: Project): Promise<{
+    files: SketchFileInput[];
+    fqbn: string;
+    libraries: LibraryDep[];
+  }>;
   /** Flash edilmeden ara kaydetme — yalnızca postgres'te anlamlı, github'da no-op. */
   saveDraft(
     project: Project,
     files: SketchFileInput[],
     fqbn: string,
+    libraries: LibraryDep[],
   ): Promise<void>;
   commit(project: Project, input: CommitInput): Promise<CommitResult>;
   listVersions(project: Project): Promise<VersionSummary[]>;

@@ -26,9 +26,11 @@ COPY --from=build /app/dist ./dist
 # CLI olmayan bir VPS'te tek migration yolu bu).
 COPY prisma.config.ts ./
 COPY prisma ./prisma
-# ide_artifacts named volume ilk kez bağlandığında Docker bu dizinin imajdaki
-# içeriğini (ve sahipliğini) volume'e kopyalar — api kullanıcısına yazma
-# izni burada verilmezse artifact-store.ts EACCES ile patlar.
-RUN mkdir -p /var/lib/espcode/artifacts && chown -R api:api /var/lib/espcode/artifacts
+# ide_artifacts/ide_libraries named volume'ları ilk kez bağlandığında Docker
+# bu dizinlerin imajdaki içeriğini (ve sahipliğini) volume'e kopyalar — api
+# kullanıcısına yazma izni burada verilmezse artifact-store.ts/
+# library-store.service.ts EACCES ile patlar.
+RUN mkdir -p /var/lib/espcode/artifacts /var/lib/espcode/libraries \
+    && chown -R api:api /var/lib/espcode/artifacts /var/lib/espcode/libraries
 USER api
 CMD ["node", "dist/main.js"]

@@ -11,12 +11,16 @@ import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { CommitProjectDto } from './dto/commit-project.dto';
 import { GithubLinkDto } from './dto/github-link.dto';
-import { PostgresProjectStorage } from './storage/postgres-storage.service';
+import {
+  PostgresProjectStorage,
+  embedLibraries,
+} from './storage/postgres-storage.service';
 import { GithubStorageService } from '../github/github-storage.service';
 import { GithubLinkBrokenError } from '../github/github-errors';
 import { slugifyProjectName } from './storage/slug';
 import type {
   CommitResult,
+  LibraryDep,
   ProjectStorage,
   VersionDetail,
   VersionSummary,
@@ -111,7 +115,9 @@ export class ProjectsService {
         userId,
         name: dto.name,
         fqbn: dto.fqbn,
-        files: toJson(dto.files ?? []),
+        files: toJson(
+          embedLibraries(dto.files ?? [], dto.fqbn, dto.libraries ?? []),
+        ),
       },
     });
     return { id: project.id };
@@ -145,6 +151,7 @@ export class ProjectsService {
       createdAt: project.createdAt,
       fqbn: current.fqbn,
       files: current.files,
+      libraries: current.libraries,
       versionCount: allVersions.length,
       versions: allVersions.slice(0, 10),
     };
@@ -155,7 +162,17 @@ export class ProjectsService {
     const nextFqbn = dto.fqbn ?? project.fqbn;
 
     if (dto.files !== undefined) {
-      await this.storageFor(project).saveDraft(project, dto.files, nextFqbn);
+      // libraries verilmediyse mevcut proje kütüphanelerini koru — saveDraft
+      // dosya listesini tam olarak değiştiriyor, sessizce sıfırlamamalı.
+      const nextLibraries =
+        dto.libraries ??
+        (await this.storageFor(project).readFiles(project)).libraries;
+      await this.storageFor(project).saveDraft(
+        project,
+        dto.files,
+        nextFqbn,
+        nextLibraries,
+      );
     }
     if (dto.name === undefined && dto.fqbn === undefined) {
       return {
@@ -229,6 +246,7 @@ export class ProjectsService {
     projectId: string,
     files: SketchFileInput[],
     fqbn: string,
+    libraries: LibraryDep[],
     buildKey: string | null,
   ): Promise<CommitResult | null> {
     const project = await this.prisma.project.findUnique({
@@ -246,6 +264,7 @@ export class ProjectsService {
       return await this.storageFor(project).commit(project, {
         files,
         fqbn,
+        libraries,
         message,
         buildKey,
       });
@@ -270,6 +289,7 @@ export class ProjectsService {
       return await this.storageFor(project).commit(project, {
         files: dto.files,
         fqbn: dto.fqbn,
+        libraries: dto.libraries ?? [],
         message: dto.message,
         buildKey: null,
         force: dto.force,
@@ -299,6 +319,13 @@ export class ProjectsService {
     const dir = slugifyProjectName(project.name);
     const branch = `espcode/${dir}`;
 
+    // Postgres'teki files sütunu, kütüphane varsa gömülü bir sketch.yaml
+    // girişi içerebilir (bkz. postgres-storage.service.ts embedLibraries) —
+    // ham diziyi olduğu gibi github.commit()'e geçirmek onu düz bir sketch
+    // dosyası gibi ikinci kez, github'ın kendi ürettiği sketch.yaml'ın
+    // üzerine yazardı. readFiles() ile düzgün ayrıştırılmış hâli kullanılır.
+    const current = await this.postgres.readFiles(project);
+
     await this.github.ensureBranch(installationId, dto.repoFullName, branch);
 
     const linked = await this.prisma.project.update({
@@ -315,8 +342,9 @@ export class ProjectsService {
 
     try {
       await this.github.commit(linked, {
-        files: (linked.files as unknown as SketchFileInput[] | null) ?? [],
-        fqbn: linked.fqbn,
+        files: current.files,
+        fqbn: current.fqbn,
+        libraries: current.libraries,
         message: 'espcode: GitHub deposuna bağlandı',
         buildKey: null,
       });
@@ -353,11 +381,13 @@ export class ProjectsService {
 
     let files: SketchFileInput[] = [];
     let fqbn = project.fqbn;
+    let libraries: LibraryDep[] = [];
     if (!project.githubLinkBroken) {
       try {
         const current = await this.github.readFiles(project);
         files = current.files;
         fqbn = current.fqbn;
+        libraries = current.libraries;
       } catch (err) {
         if (!(err instanceof GithubLinkBrokenError)) throw err;
       }
@@ -372,7 +402,7 @@ export class ProjectsService {
         githubBranch: null,
         githubDir: null,
         githubLinkBroken: false,
-        files: toJson(files),
+        files: toJson(embedLibraries(files, fqbn, libraries)),
         fqbn,
       },
     });

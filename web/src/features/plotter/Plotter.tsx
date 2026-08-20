@@ -23,8 +23,8 @@ function buildOptions(width: number, height: number, channels: string[]): uPlot.
     height,
     scales: { x: { time: false } },
     axes: [
-      { stroke: "#71717a", grid: { stroke: "#27272a" }, label: "saniye" },
-      { stroke: "#71717a", grid: { stroke: "#27272a" } },
+      { stroke: "#8b8b94", grid: { stroke: "#1c1c1f" }, label: "saniye" },
+      { stroke: "#8b8b94", grid: { stroke: "#1c1c1f" } },
     ],
     series: [
       {},

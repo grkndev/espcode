@@ -15,6 +15,10 @@ networks:
 volumes:
   ide_toolchain:
   ide_buildcache:
+  # ide-api'nin indirip doğruladığı Arduino/ESP32 kütüphaneleri — ide-api rw,
+  # ide-builder ro mount eder. Builder'ın kendisi hâlâ hiçbir ağa çıkmaz
+  # (docs/backend.plan.md §3.1); yalnızca bu volume üzerinden okur.
+  ide_libraries:
   pg_data:
   # R2 henüz bağlı değil — imzalı-URL sözleşmesini koruyan yerel disk stand-in
   # (backend.plan.md §6.2 ile aynı içerik-adresli anahtar, gerçek R2'ye
@@ -68,6 +72,7 @@ services:
     volumes:
       - ide_toolchain:/opt/arduino:ro
       - ide_buildcache:/var/cache/arduino
+      - ide_libraries:/opt/libs:ro
     networks: [ide-net]
     environment:
       REDIS_URL: redis://:${REDIS_JOBS_PASSWORD}@redis-jobs:6379/0
@@ -75,6 +80,7 @@ services:
       ARDUINO_DIRECTORIES_USER: /opt/arduino/user
       ARDUINO_DIRECTORIES_DOWNLOADS: /tmp/dl
       ARDUINO_BUILD_CACHE_PATH: /var/cache/arduino
+      LIBRARY_ROOT: /opt/libs
       BUILD_TIMEOUT_SEC: "120"
       COMPILE_JOBS: "2"
 
@@ -106,8 +112,10 @@ services:
     depends_on:
       redis-jobs: { condition: service_healthy }
       postgres: { condition: service_healthy }
-    mem_limit: 512m # 384m → 512m — Prisma client + pg pool (master.plan.md §7)
-    memswap_limit: 512m
+    # 512m → 1g — Arduino kütüphane kayıt defterini (57 MB gzip, JSON.parse
+    # tepe kullanımı çok daha büyük) tazelerken oluşan geçici tepe için.
+    mem_limit: 1g
+    memswap_limit: 1g
     cpus: "0.5"
     pids_limit: 128
     networks: [ide-net, edge-net, db-net]
@@ -116,6 +124,7 @@ services:
     ports: ["3001:3000"]
     volumes:
       - ide_artifacts:/var/lib/espcode/artifacts
+      - ide_libraries:/var/lib/espcode/libraries
       # Faz 6.1 — GitHub App private key. Prod'da gerçek docker secret olur;
       # yerelde tüm secrets/'ı salt-okunur bağlıyoruz — dosya adı kullanıcının
       # GitHub App'ten indirdiği isimle kalır, GITHUB_APP_PRIVATE_KEY_PATH
@@ -148,6 +157,7 @@ services:
       COOKIE_SECURE: ${COOKIE_SECURE:-false}
       COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
       ARTIFACT_DIR: /var/lib/espcode/artifacts
+      LIBRARY_DIR: /var/lib/espcode/libraries
       ARTIFACT_SIGN_TTL_SEC: "300"
       # Faz 6.1 — GitHub App (§3.1), kimlik OAuth'undan ayrı yetkilendirme.
       GITHUB_APP_ID: ${GITHUB_APP_ID}

@@ -15,8 +15,8 @@ export interface TerminalHandle {
 // CSS var() çözemediği için literal hex).
 const XTERM_THEME = {
   background: "#09090b",
-  foreground: "#a1a1aa",
-  cursor: "#3d3bff",
+  foreground: "#d4d4d8",
+  cursor: "#4a48ff",
 };
 
 const SerialTerminal = forwardRef<TerminalHandle>(function SerialTerminal(_props, ref) {

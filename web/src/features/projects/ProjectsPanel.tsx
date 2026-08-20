@@ -22,6 +22,7 @@ import { useGithubStorage } from "./useGithubStorage";
 import GithubLinkDialog from "./GithubLinkDialog";
 import CommitDialog from "./CommitDialog";
 import type { SketchFile } from "@/features/editor/sketch-files";
+import type { LibraryDep } from "@/features/libraries/useLibraries";
 
 export interface PendingGithubInstall {
   projectId: string;
@@ -35,8 +36,17 @@ export interface ProjectsPanelProps {
   onLogout: () => void;
   files: SketchFile[];
   fqbn: string;
+  libraries: LibraryDep[];
   activeProjectId: string | null;
-  onActivate: (id: string | null, files?: SketchFile[], fqbn?: string) => void;
+  onActivate: (
+    id: string | null,
+    files?: SketchFile[],
+    fqbn?: string,
+    libraries?: LibraryDep[],
+    opts?: { discardDraft?: boolean },
+  ) => void;
+  /** create()/commit() sunucuya başarıyla yazınca çağrılır — yerel taslağın temizlenmesi için (bkz. IdeShell). */
+  onSaved?: (projectId: string, files: SketchFile[], fqbn: string, libraries: LibraryDep[]) => void;
   pendingGithubInstall?: PendingGithubInstall | null;
   onConsumePendingGithubInstall?: () => void;
 }
@@ -73,8 +83,10 @@ export default function ProjectsPanel({
   onLogout,
   files,
   fqbn,
+  libraries,
   activeProjectId,
   onActivate,
+  onSaved,
   pendingGithubInstall,
   onConsumePendingGithubInstall,
 }: ProjectsPanelProps) {
@@ -117,8 +129,9 @@ export default function ProjectsPanel({
       setAdding(false);
       return;
     }
-    const id = await create(draft.trim(), fqbn, files);
+    const id = await create(draft.trim(), fqbn, files, libraries);
     onActivate(id);
+    onSaved?.(id, files, fqbn, libraries);
     setDraft("");
     setAdding(false);
   }
@@ -126,7 +139,7 @@ export default function ProjectsPanel({
   async function handleLoad(id: string) {
     try {
       const detail = await loadProject(id);
-      onActivate(id, detail.files, detail.fqbn);
+      onActivate(id, detail.files, detail.fqbn, detail.libraries);
     } catch (err) {
       onActivate(id);
       toast.error("Proje açılamadı", {
@@ -138,7 +151,9 @@ export default function ProjectsPanel({
   async function handleRestore(versionId: string) {
     if (!activeProjectId) return;
     const version = await getVersion(activeProjectId, versionId);
-    onActivate(version.projectId, version.files, version.fqbn ?? undefined);
+    onActivate(version.projectId, version.files, version.fqbn ?? undefined, version.libraries, {
+      discardDraft: true,
+    });
   }
 
   async function handleUnlink() {
@@ -163,7 +178,7 @@ export default function ProjectsPanel({
         <button
           onClick={onLogin}
           disabled={authLoading}
-          className="flex items-center gap-2 rounded-md bg-[var(--vsc-accent)] px-3.5 py-2 text-xs font-medium text-white transition-transform active:scale-[0.97] disabled:opacity-40"
+          className="flex items-center gap-2 rounded-[8px] bg-[var(--vsc-accent)] px-3.5 py-2 text-xs font-medium text-white transition-transform active:scale-[0.97] disabled:opacity-40"
         >
           <LogIn size={14} strokeWidth={2.25} />
           GitHub ile giriş yap
@@ -174,13 +189,13 @@ export default function ProjectsPanel({
 
   return (
     <div className="flex h-full flex-col bg-[var(--vsc-sidebar)] text-[var(--vsc-fg)]">
-      <div className="flex items-center justify-between border-b border-[var(--vsc-border)] px-3 py-2.5">
+      <div className="flex h-[38px] shrink-0 items-center justify-between border-b border-[var(--vsc-border)] px-3">
         <div className="flex min-w-0 items-center gap-2">
           {user.avatarUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={user.avatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
           )}
-          <span className="truncate text-xs font-medium">{user.login}</span>
+          <span className="truncate text-xs font-medium text-[var(--vsc-fg-active)]">{user.login}</span>
         </div>
         <button
           onClick={onLogout}
@@ -193,15 +208,15 @@ export default function ProjectsPanel({
 
       <div className="flex-1 overflow-y-auto p-3">
         <div className="mb-2 flex items-center justify-between">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
-            Projelerim ({user.quota.projects.used}/{user.quota.projects.max})
+          <span className="font-[family-name:var(--font-data)] text-[9.5px] font-medium tracking-[0.12em] text-[var(--vsc-fg-muted)]">
+            PROJELERİM ({user.quota.projects.used}/{user.quota.projects.max})
           </span>
           <button
             onClick={() => setAdding(true)}
             title="Bu sketch'i kaydet"
-            className="rounded py-1 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
+            className="rounded p-0.5 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
           >
-            <Save size={14} strokeWidth={2.5} />
+            <Save size={13} strokeWidth={2.5} />
           </button>
         </div>
 
@@ -219,7 +234,7 @@ export default function ProjectsPanel({
               }
             }}
             placeholder="Proje adı"
-            className="mb-2 w-full rounded border border-[var(--vsc-accent)] bg-[var(--vsc-selected)] px-2.5 py-2 text-xs text-[var(--vsc-fg-active)]"
+            className="mb-2 w-full rounded-[8px] border border-[var(--vsc-accent)] bg-[var(--vsc-selected)] px-2.5 py-2 text-xs text-[var(--vsc-fg-active)]"
           />
         )}
 
@@ -232,9 +247,9 @@ export default function ProjectsPanel({
           {projects.map((p) => (
             <li key={p.id} className="group">
               <div
-                className={`flex items-center gap-2 rounded-lg px-2.5 py-2 ${
+                className={`flex items-center gap-2 rounded-[8px] px-2.5 py-2 ${
                   p.id === activeProjectId
-                    ? "bg-[var(--vsc-selected)] text-[var(--vsc-fg-active)]"
+                    ? "bg-[var(--vsc-selected-file)] text-[var(--vsc-fg-active)]"
                     : "text-[var(--vsc-fg)] hover:bg-[var(--vsc-selected)]/60"
                 }`}
               >
@@ -264,7 +279,7 @@ export default function ProjectsPanel({
         {activeProject && (
           <div className="mt-4 flex flex-col gap-2">
             {activeProject.githubLinkBroken && (
-              <div className="flex items-center gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2.5 py-2 text-[11px] text-red-500">
+              <div className="flex items-center gap-2 rounded-[8px] border border-red-500/30 bg-red-500/10 px-2.5 py-2 text-[11px] text-red-500">
                 <AlertTriangle size={13} strokeWidth={2.25} className="shrink-0" />
                 <span className="flex-1">GitHub bağlantısı koptu.</span>
                 <button
@@ -279,7 +294,7 @@ export default function ProjectsPanel({
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => setCommitDialogOpen(true)}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--vsc-border)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--vsc-fg)] hover:bg-[var(--vsc-selected)]"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-[8px] border border-[var(--vsc-border-ghost)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--vsc-fg)] hover:bg-[var(--vsc-selected)]"
               >
                 <GitCommitHorizontal size={12} strokeWidth={2.25} />
                 Commit&apos;le
@@ -288,7 +303,7 @@ export default function ProjectsPanel({
                 <button
                   onClick={() => void handleUnlink()}
                   title="GitHub bağlantısını kaldır"
-                  className="shrink-0 rounded-md border border-[var(--vsc-border)] p-1.5 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
+                  className="shrink-0 rounded-[8px] border border-[var(--vsc-border-ghost)] p-1.5 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
                 >
                   <Link2Off size={12} strokeWidth={2.25} />
                 </button>
@@ -296,7 +311,7 @@ export default function ProjectsPanel({
                 <button
                   onClick={() => setGithubDialogOpen(true)}
                   title="GitHub'a bağla"
-                  className="shrink-0 rounded-md border border-[var(--vsc-border)] p-1.5 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
+                  className="shrink-0 rounded-[8px] border border-[var(--vsc-border-ghost)] p-1.5 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
                 >
                   <Database size={12} strokeWidth={2.25} />
                 </button>
@@ -313,21 +328,23 @@ export default function ProjectsPanel({
 
         {activeProjectId && versions && versions.length > 0 && (
           <div className="mt-4">
-            <span className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
+            <span className="mb-2 flex items-center gap-1.5 font-[family-name:var(--font-data)] text-[9.5px] font-medium tracking-[0.12em] text-[var(--vsc-fg-muted)]">
               <History size={12} strokeWidth={2.5} />
-              Versiyon geçmişi
+              VERSİYON GEÇMİŞİ
             </span>
             <ul className="flex flex-col gap-0.5">
               {versions.map((v, i) => (
-                <li key={v.id} className="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs">
+                <li key={v.id} className="flex items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-xs">
                   <span className="min-w-0 flex-1 truncate text-[var(--vsc-fg-muted)]">
                     {activeProject?.storageProvider === "github" ? (
                       <>
-                        <span className="[font-family:var(--font-data)]">{v.id.slice(0, 7)}</span>{" "}
+                        <span className="font-[family-name:var(--font-data)] text-[var(--vsc-accent-mono)]">
+                          {v.id.slice(0, 7)}
+                        </span>{" "}
                         {v.note ?? ""}
                       </>
                     ) : (
-                      <span className="[font-family:var(--font-data)]">
+                      <span className="font-[family-name:var(--font-data)]">
                         v{versions.length - i} · {new Date(v.createdAt).toLocaleString("tr-TR")}
                       </span>
                     )}
@@ -376,10 +393,11 @@ export default function ProjectsPanel({
             onOpenChange={setCommitDialogOpen}
             provider={activeProject?.storageProvider ?? "postgres"}
             onCommit={async (message, force) => {
-              const result = await commit(activeProjectId, { message, files, fqbn, force });
+              const result = await commit(activeProjectId, { message, files, fqbn, libraries, force });
               if (result.ok) {
                 await refresh();
                 setVersions(await listVersions(activeProjectId));
+                onSaved?.(activeProjectId, files, fqbn, libraries);
               }
               return result;
             }}

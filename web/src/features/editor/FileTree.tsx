@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Plus, X, FileCode } from "lucide-react";
+import { forwardRef, useImperativeHandle, useState } from "react";
+import { X, FileCode } from "lucide-react";
 import { type SketchFile, PRIMARY_FILE, isValidFileName } from "./sketch-files";
 
 export interface FileTreeProps {
@@ -10,6 +10,11 @@ export interface FileTreeProps {
   onOpen: (path: string) => void;
   onAdd: (path: string) => void;
   onRemove: (path: string) => void;
+}
+
+export interface FileTreeHandle {
+  /** WorkspacePanel'in "SKETCH" bölüm başlığındaki "+" butonu bunu çağırır. */
+  startAdding: () => void;
 }
 
 // VSCode'daki dosya türüne göre renkli ikon geleneği
@@ -25,10 +30,18 @@ function iconColor(path: string): string {
   return ICON_COLOR[ext] ?? "#858585";
 }
 
-export default function FileTree({ files, activePath, onOpen, onAdd, onRemove }: FileTreeProps) {
+// design_handoff — "SKETCH" bölümünün gövdesi. Bölüm başlığı (grip tutamacı,
+// "+" ekle butonu, katla/aç) artık WorkspacePanel.tsx'te yaşıyor; bu bileşen
+// yalnızca dosya listesi + satır içi ekleme input'unu render eder.
+const FileTree = forwardRef<FileTreeHandle, FileTreeProps>(function FileTree(
+  { files, activePath, onOpen, onAdd, onRemove },
+  ref,
+) {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [invalid, setInvalid] = useState(false);
+
+  useImperativeHandle(ref, () => ({ startAdding: () => setAdding(true) }), []);
 
   function commitAdd() {
     if (!draft) {
@@ -46,32 +59,19 @@ export default function FileTree({ files, activePath, onOpen, onAdd, onRemove }:
   }
 
   return (
-    <div className="flex h-full flex-col bg-[var(--vsc-sidebar)] p-3 text-[var(--vsc-fg)]">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-[var(--vsc-fg-muted)]">
-          Sketch
-        </span>
-        <button
-          onClick={() => setAdding(true)}
-          title="Yeni dosya"
-          className="rounded py-1 text-[var(--vsc-fg-muted)] hover:bg-[var(--vsc-selected)] hover:text-[var(--vsc-fg-active)]"
-        >
-          <Plus size={14} strokeWidth={2.5} />
-        </button>
-      </div>
-
-      <ul className="flex flex-col gap-0.5">
+    <div className="text-[var(--vsc-fg)]">
+      <ul className="flex flex-col gap-0.5 px-2">
         {files.map((f) => (
           <li key={f.path} className="group">
             <button
               onClick={() => onOpen(f.path)}
-              className={`flex w-full items-center gap-2 rounded-lg px-4 py-2 text-left text-[13px] font-medium ${
+              className={`flex w-full items-center gap-2 rounded-[8px] px-2.5 py-[7px] text-left text-[13px] ${
                 f.path === activePath
-                  ? "bg-[var(--vsc-selected)] text-[var(--vsc-fg-active)]"
+                  ? "bg-[var(--vsc-selected-file)] text-[var(--vsc-fg-active)]"
                   : "text-[var(--vsc-fg)] hover:bg-[var(--vsc-selected)]/60"
               }`}
             >
-              <FileCode size={16} strokeWidth={2.25} color={iconColor(f.path)} className="shrink-0" />
+              <FileCode size={15} strokeWidth={2.25} color={iconColor(f.path)} className="shrink-0" />
               <span className="flex-1 truncate">{f.path}</span>
               {f.path !== PRIMARY_FILE && (
                 <span
@@ -92,7 +92,7 @@ export default function FileTree({ files, activePath, onOpen, onAdd, onRemove }:
       </ul>
 
       {adding && (
-        <div className="mt-2 px-4">
+        <div className="px-2 pt-1">
           <input
             autoFocus
             value={draft}
@@ -110,7 +110,7 @@ export default function FileTree({ files, activePath, onOpen, onAdd, onRemove }:
               }
             }}
             placeholder="dosya.h"
-            className={`w-full rounded border bg-[var(--vsc-selected)] px-2.5 py-2 font-[var(--font-data)] text-xs text-[var(--vsc-fg-active)] ${
+            className={`w-full rounded-[8px] border bg-[var(--vsc-selected)] px-2.5 py-[7px] font-[family-name:var(--font-data)] text-xs text-[var(--vsc-fg-active)] ${
               invalid ? "border-red-500" : "border-[var(--vsc-accent)]"
             }`}
           />
@@ -119,4 +119,6 @@ export default function FileTree({ files, activePath, onOpen, onAdd, onRemove }:
       )}
     </div>
   );
-}
+});
+
+export default FileTree;

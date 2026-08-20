@@ -22,6 +22,11 @@ export function computeBuildKey(
   files: SketchFileInput[],
   fqbn: string,
   options: Record<string, string> = {},
+  // Çözülmüş kütüphane dizin adları ("<slug>@<version>", dolaylı
+  // bağımlılıklar dahil) — LibraryStoreService.ensureInstalled()'ın dönüşü.
+  // Bir kütüphane eklemek/kaldırmak/sürüm değiştirmek eski binary'yi cache'ten
+  // döndürmesin diye anahtara giriyor.
+  libraryDirs: string[] = [],
 ): string {
   const filesPart = files
     .slice()
@@ -30,7 +35,10 @@ export function computeBuildKey(
     .join('\0');
 
   const optionsPart = JSON.stringify(options, Object.keys(options).sort());
+  const librariesPart = libraryDirs.slice().sort().join('\0');
 
-  const key = [filesPart, fqbn, optionsPart, CORE_VERSION].join('\0');
+  const key = [filesPart, fqbn, optionsPart, librariesPart, CORE_VERSION].join(
+    '\0',
+  );
   return createHash('sha256').update(key).digest('hex');
 }
