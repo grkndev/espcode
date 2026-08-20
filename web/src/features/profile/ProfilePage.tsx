@@ -21,16 +21,14 @@ function initials(login: string): string {
 // Gösterilen her alan (login, avatar, üye olma tarihi, kota) gerçek /api/me
 // verisi.
 export default function ProfilePage({ user, onLogout }: ProfilePageProps) {
-  const memberSince = new Date(user.createdAt).toLocaleDateString("tr-TR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
+  const memberSince = new Date(user.createdAt)
+    .toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" })
+    .toUpperCase();
 
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
-        <Link href="/" className="[font-family:var(--font-display)] text-xl font-semibold tracking-tight">
+      <header className="flex h-13 items-center justify-between border-b border-border px-6">
+        <Link href="/" className="font-[family-name:var(--font-display)] text-[19px] font-bold tracking-tight">
           espcode
         </Link>
         <Button render={<Link href="/" />} nativeButton={false} variant="ghost" size="sm">
@@ -39,44 +37,54 @@ export default function ProfilePage({ user, onLogout }: ProfilePageProps) {
         </Button>
       </header>
 
-      <main className="mx-auto flex max-w-md flex-col items-center gap-6 px-6 py-16">
-        <Avatar className="size-20">
+      <main className="flex flex-col items-center px-6 pt-11 pb-16">
+        <Avatar className="size-16">
           <AvatarImage src={user.avatarUrl ?? undefined} alt={user.login} />
-          <AvatarFallback className="text-2xl">{initials(user.login)}</AvatarFallback>
+          <AvatarFallback className="bg-foreground font-[family-name:var(--font-display)] text-2xl font-semibold text-background">
+            {initials(user.login)}
+          </AvatarFallback>
         </Avatar>
 
-        <div className="text-center">
-          <h1 className="[font-family:var(--font-display)] text-2xl font-semibold tracking-tight">
-            {user.login}
-          </h1>
-          <a
-            href={`https://github.com/${user.login}`}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
-          >
-            GitHub ile bağlı
-            <ExternalLink size={11} strokeWidth={2.25} />
-          </a>
+        <h1 className="mt-3.5 font-[family-name:var(--font-display)] text-2xl font-semibold tracking-tight">
+          {user.login}
+        </h1>
+        <a
+          href={`https://github.com/${user.login}`}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1.5 inline-flex items-center gap-1.5 font-[family-name:var(--font-data)] text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <span className="size-1.5 rounded-full bg-success" />
+          GITHUB İLE BAĞLI
+          <ExternalLink size={10} strokeWidth={2.25} />
+        </a>
+
+        <div className="mt-6.5 w-full max-w-[420px] overflow-hidden rounded-2xl border border-border bg-card">
+          <div className="flex items-center justify-between gap-4 border-b border-dashed border-rule-soft px-5 py-3.5">
+            <span className="text-[13px] text-muted-foreground">Üye olma</span>
+            <span className="font-[family-name:var(--font-data)] text-xs font-medium">{memberSince}</span>
+          </div>
+          <div className="flex items-center justify-between gap-4 border-b border-dashed border-rule-soft px-5 py-3.5">
+            <span className="text-[13px] text-muted-foreground">Proje kotası</span>
+            <QuotaBar used={user.quota.projects.used} max={user.quota.projects.max} />
+          </div>
+          <div className="flex items-center justify-between gap-4 px-5 py-3.5">
+            <span className="text-[13px] text-muted-foreground">Plan</span>
+            <Link
+              href="/subscription"
+              className="font-[family-name:var(--font-data)] text-xs font-medium text-signal-mono"
+            >
+              ÜCRETSİZ · <span className="text-muted-foreground">yükselt →</span>
+            </Link>
+          </div>
         </div>
 
-        <div className="w-full rounded-xl border border-border bg-card px-5 py-4">
-          <dl className="flex flex-col gap-3.5 text-sm">
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-muted-foreground">Üye olma</dt>
-              <dd>{memberSince}</dd>
-            </div>
-            <div className="flex items-center justify-between gap-4">
-              <dt className="text-muted-foreground">Proje kotası</dt>
-              <dd>
-                <QuotaBar used={user.quota.projects.used} max={user.quota.projects.max} />
-              </dd>
-            </div>
-          </dl>
-        </div>
-
-        <Button variant="destructive" onClick={onLogout} className="w-full">
-          <LogOut size={14} strokeWidth={2.25} />
+        <Button
+          variant="outline"
+          onClick={onLogout}
+          className="mt-4.5 h-10 w-full max-w-[420px] rounded-[10px] border-border bg-transparent text-destructive hover:bg-destructive/5 hover:text-destructive"
+        >
+          <LogOut size={13} strokeWidth={2.25} />
           Çıkış yap
         </Button>
       </main>

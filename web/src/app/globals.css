@@ -12,11 +12,16 @@
    semantik değişkenleri (aşağıda) buna referans verir, tersi değil. */
 :root {
   --stock: #edf0f2;
+  --panel: #f7f9fa; /* kart/panel zemini — stock'tan bir tık açık, kenarlıksız ayrım */
   --ink: #10151a;
   --rule: #c3cdd4;
+  --rule-soft: #d9e0e5; /* iç bölücüler, kesikli çizgiler */
   --ink-muted: #6b7a85; /* ikincil metin, pin etiketleri */
+  --faint: #8896a0; /* üçüncül/dipnot metin */
   --signal: #3d3bff;
-  --alarm: #c8102e;
+  --signal-mono: #3d3bff; /* "Aç →", hash, chip metni — koyu temada signal'dan ayrışır */
+  --alarm: #c8102e; /* yalnız metin+ikon, dev kırmızı blok YOK */
+  --success: #10b981;
 
   --font-display: var(--font-bricolage), system-ui, sans-serif;
   --font-ui: var(--font-instrument), system-ui, sans-serif;
@@ -28,12 +33,12 @@
   /* shadcn/ui (tweakcn preset b2GVUt5DMm) eşlemesi */
   --background: var(--stock);
   --foreground: var(--ink);
-  --card: var(--stock);
+  --card: var(--panel);
   --card-foreground: var(--ink);
-  --popover: var(--stock);
+  --popover: var(--panel);
   --popover-foreground: var(--ink);
   --primary: var(--signal);
-  --primary-foreground: var(--stock);
+  --primary-foreground: #ffffff;
   --secondary: var(--rule);
   --secondary-foreground: var(--ink);
   --muted: var(--rule);
@@ -64,9 +69,16 @@
    ekliyor/kaldırıyor, bu yüzden ayrı bir medya sorgusuna gerek yok. */
 .dark {
   --stock: #0d1114;
+  --panel: #12181d;
   --ink: #dce3e8;
   --rule: #2a3238;
+  --rule-soft: #232b31;
   --ink-muted: #7d8b95;
+  --faint: #55636d;
+  --signal: #6b69ff;
+  --signal-mono: #8f8eff;
+  --alarm: #f87171;
+  --success: #34d399;
 }
 
 /* IDE kabuğu — tek tondan (zinc) koyu taban + tek vurgu rengi. Sabit, temaya
@@ -124,6 +136,11 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-panel: var(--panel);
+  --color-rule-soft: var(--rule-soft);
+  --color-faint: var(--faint);
+  --color-success: var(--success);
+  --color-signal-mono: var(--signal-mono);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);

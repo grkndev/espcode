@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft, Check, Clock } from "lucide-react";
+import { ArrowLeft, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import QuotaBar from "@/features/auth/QuotaBar";
+import TickQuota from "@/features/auth/TickQuota";
 import type { AuthUser } from "@/features/auth/useAuth";
 
 export interface SubscriptionPageProps {
@@ -25,8 +25,8 @@ const FREE_FEATURES = [
 export default function SubscriptionPage({ user }: SubscriptionPageProps) {
   return (
     <div className="min-h-dvh bg-background text-foreground">
-      <header className="flex items-center justify-between border-b border-border px-6 py-4">
-        <Link href="/" className="[font-family:var(--font-display)] text-xl font-semibold tracking-tight">
+      <header className="flex h-13 items-center justify-between border-b border-border px-6">
+        <Link href="/" className="font-[family-name:var(--font-display)] text-[19px] font-bold tracking-tight">
           espcode
         </Link>
         <Button render={<Link href="/" />} nativeButton={false} variant="ghost" size="sm">
@@ -35,31 +35,35 @@ export default function SubscriptionPage({ user }: SubscriptionPageProps) {
         </Button>
       </header>
 
-      <main className="mx-auto max-w-md px-6 py-16">
-        <div className="rounded-xl border border-border bg-card px-6 py-6">
-          <div className="flex items-center justify-between gap-4">
+      <main className="flex flex-col items-center px-6 pt-10 pb-16">
+        <div className="w-full max-w-[440px] rounded-2xl border border-border bg-card px-7 py-6.5">
+          <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Mevcut plan</p>
-              <h1 className="[font-family:var(--font-display)] text-2xl font-semibold tracking-tight">
+              <p className="font-[family-name:var(--font-data)] text-[10px] font-medium tracking-[0.14em] text-muted-foreground">
+                MEVCUT PLAN
+              </p>
+              <h1 className="mt-1.5 font-[family-name:var(--font-display)] text-[28px] leading-none font-semibold tracking-[-0.01em]">
                 Ücretsiz
               </h1>
             </div>
-            <QuotaBar used={user.quota.projects.used} max={user.quota.projects.max} />
+            <TickQuota used={user.quota.projects.used} max={user.quota.projects.max} layout="stacked" />
           </div>
 
-          <ul className="mt-5 flex flex-col gap-2.5 border-t border-border pt-5 text-sm">
-            {FREE_FEATURES.map((feature) => (
-              <li key={feature} className="flex items-start gap-2">
-                <Check size={15} strokeWidth={2.5} className="mt-0.5 shrink-0 text-primary" />
-                {feature}
-              </li>
-            ))}
-          </ul>
+          <div className="mt-5 border-t border-border pt-4">
+            <ul className="flex flex-col gap-3 text-[13.5px] leading-normal">
+              {FREE_FEATURES.map((feature) => (
+                <li key={feature} className="flex items-start gap-2.5">
+                  <span className="font-semibold text-primary">✓</span>
+                  {feature}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
 
-        <div className="mt-4 flex items-start gap-3 rounded-xl border border-dashed border-border px-5 py-4 text-sm text-muted-foreground">
-          <Clock size={16} strokeWidth={2.25} className="mt-0.5 shrink-0" />
-          <p>
+        <div className="mt-3.5 flex w-full max-w-[440px] items-start gap-3 rounded-2xl border-[1.5px] border-dashed border-rule-soft px-5.5 py-4">
+          <Clock size={15} strokeWidth={2} className="mt-0.5 shrink-0 text-muted-foreground" />
+          <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             Ücretli planlar henüz yok. İleride daha yüksek proje/versiyon limitleri sunan bir abonelik
             sistemi eklenebilir.
           </p>
