@@ -18,12 +18,16 @@ export interface CommitDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCommit: (message: string, force: boolean) => Promise<CommitResult>;
+  /** Toast metninde nereye kaydedildiğini açıkça söylemek için — bağlama
+   * sessizce yarım kalırsa kullanıcı "commit gitti ama nereye?" diye
+   * kalmasın. */
+  provider: "postgres" | "github";
 }
 
 // Flash'tan bağımsız manuel kaydetme. GitHub'a bağlı projede sha çakışması
 // (409) olursa "üzerine yazayım mı?" onayı isteniyor — master.plan.md §3.1
 // "otomatik merge yok".
-export default function CommitDialog({ open, onOpenChange, onCommit }: CommitDialogProps) {
+export default function CommitDialog({ open, onOpenChange, onCommit, provider }: CommitDialogProps) {
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [conflictPaths, setConflictPaths] = useState<string[] | null>(null);
@@ -39,7 +43,7 @@ export default function CommitDialog({ open, onOpenChange, onCommit }: CommitDia
     try {
       const result = await onCommit(message.trim(), force);
       if (result.ok) {
-        toast.success("Commit'lendi");
+        toast.success(provider === "github" ? "GitHub'a commit'lendi" : "Postgres'e kaydedildi");
         reset();
         onOpenChange(false);
         return;

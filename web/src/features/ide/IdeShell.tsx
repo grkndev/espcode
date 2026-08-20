@@ -98,7 +98,9 @@ export default function IdeShell() {
 
   const isMonitoring = state === "monitoring";
   const isConnected = state !== "disconnected";
-  const activeFile = files.find((f) => f.path === activePath) ?? files[0];
+  // files boşsa (normalde olmamalı — handleActivateProject bunu engelliyor)
+  // activeFile.content okuması IDE'yi çökertmesin diye boş bir dosyaya düşülür.
+  const activeFile = files.find((f) => f.path === activePath) ?? files[0] ?? { path: PRIMARY_FILE, content: "" };
 
   const appendLog = (line: string) => setLogLines((prev) => [...prev.slice(-199), line]);
 
@@ -266,7 +268,16 @@ export default function IdeShell() {
   // olduğunu işaretler (sonraki "Derle ve Yükle" o projeye versiyon yazar).
   function handleActivateProject(id: string | null, newFiles?: SketchFile[], newFqbn?: string) {
     setActiveProjectId(id);
-    if (newFiles) {
+    if (newFiles && newFiles.length === 0) {
+      // GitHub'a bağlı projelerde sketch.yaml + her dosya ayrı commit olarak
+      // yazılıyor (atomik değil) — split'in ilk commit'i yalnızca
+      // sketch.yaml içerebilir, o versiyona geri dönmek boş bir dosya
+      // listesi üretir. Editörü boşaltmak yerine mevcut haliyle bırakıp
+      // kullanıcıyı uyarmak, activeFile'ın undefined kalıp çökmesinden iyi.
+      toast.warning("Bu versiyon dosya içermiyor", {
+        description: "Muhtemelen ara bir commit — geri yükleme atlandı.",
+      });
+    } else if (newFiles) {
       setFiles(newFiles);
       const stillOpen = newFiles.some((f) => f.path === activePath);
       setOpenPaths(stillOpen ? [activePath] : [PRIMARY_FILE]);

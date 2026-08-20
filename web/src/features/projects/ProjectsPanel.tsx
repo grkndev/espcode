@@ -56,7 +56,14 @@ function ProviderBadge({ project }: { project: ProjectSummary }) {
       </span>
     );
   }
-  return null;
+  // Sağlayıcı durumu her zaman açık gösterilir — "hiçbir şey görünmüyorsa
+  // bağlı değildir" gibi örtük bir kurala bağlı kalınmaz (bağlama sessizce
+  // yarım kalırsa kullanıcı bunu buradan hemen anlar).
+  return (
+    <span title="Postgres'te saklanıyor" className="shrink-0 text-[var(--vsc-fg-muted)]">
+      <Database size={11} strokeWidth={2.25} />
+    </span>
+  );
 }
 
 export default function ProjectsPanel({
@@ -359,11 +366,15 @@ export default function ProjectsPanel({
             preselectInstallationId={
               pendingGithubInstall?.projectId === activeProjectId ? pendingGithubInstall.installationId : null
             }
-            onLinked={() => void refresh()}
+            onLinked={async () => {
+              await refresh();
+              setVersions(await listVersions(activeProjectId));
+            }}
           />
           <CommitDialog
             open={commitDialogOpen}
             onOpenChange={setCommitDialogOpen}
+            provider={activeProject?.storageProvider ?? "postgres"}
             onCommit={async (message, force) => {
               const result = await commit(activeProjectId, { message, files, fqbn, force });
               if (result.ok) {

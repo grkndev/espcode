@@ -22,21 +22,32 @@ export class GithubController {
     res.redirect(url);
   }
 
-  // Kimlik burada cookie'den değil, install()'un ürettiği state'ten
-  // doğrulanır — GithubInstallService.completeInstallation.
+  // Kimlik öncelikle install()'un ürettiği state'ten doğrulanır. GitHub App
+  // zaten hesaba kuruluysa (ya da "Redirect on update" github.com'dan
+  // doğrudan yönetilen bir güncellemeyle tetiklenirse) state hiç gelmez —
+  // bu durumda AuthMiddleware'in doldurduğu req.user'a (aynı tarayıcıdaki
+  // espcode oturumu) yedek olarak düşülür. GithubInstallService.completeInstallation.
   @Get('callback')
   async callback(
+    @CurrentUser() user: RequestUser | null,
     @Query('installation_id') installationId: string,
-    @Query('state') state: string,
+    @Query('state') state: string | undefined,
     @Res() res: Response,
   ) {
-    const { projectId } = await this.install.completeInstallation(
+    const pending = await this.install.completeInstallation(
       state,
       BigInt(installationId),
+      user?.id ?? null,
     );
     const origin = process.env.APP_ORIGIN ?? '/';
+
+    if (!pending) {
+      res.redirect(origin);
+      return;
+    }
+
     const url = new URL(`${origin}/editor`);
-    url.searchParams.set('project', projectId);
+    url.searchParams.set('project', pending.projectId);
     url.searchParams.set('github', 'installed');
     url.searchParams.set('installation', installationId);
     res.redirect(url.toString());

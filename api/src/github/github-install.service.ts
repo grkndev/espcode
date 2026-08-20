@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-  OnModuleDestroy,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import IORedis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.service';
@@ -62,31 +57,57 @@ export class GithubInstallService implements OnModuleDestroy {
     return `https://github.com/apps/${slug}/installations/new?state=${state}`;
   }
 
-  private async consumeState(state: string): Promise<InstallState> {
+  private async peekState(state: string): Promise<InstallState | null> {
     const key = STATE_KEY(state);
     const raw = await this.redis.get(key);
-    if (!raw) throw new UnauthorizedException('invalid_or_expired_state');
+    if (!raw) return null;
     await this.redis.del(key);
     return JSON.parse(raw) as InstallState;
   }
 
-  // §3.1 adım 3-4 — callback kimliği cookie'den değil state'ten okur (GitHub
-  // yönlendirmesi güvenilir bir same-site bağlamda gelmeyebilir).
+  // §3.1 adım 3-4 — kimlik öncelikle state'ten okunur (GitHub yönlendirmesi
+  // güvenilir bir same-site bağlamda gelmeyebilir diye cookie'ye değil).
+  //
+  // Ama GitHub'ın gerçek davranışı canlı testte ortaya çıktı: App zaten
+  // hesaba kuruluysa `installations/new?state=…` state'i hiç taşımadan
+  // doğrudan kurulum ayarlar sayfasına düşürüyor — yani "zaten kurulu,
+  // başka bir projeyi bağlamak istiyorum" senaryosunda state YOK. Aynı
+  // şekilde "Redirect on update" da kurulum github.com'dan doğrudan
+  // yönetildiğinde bize hiç ait olmayan bir state ile (ya da hiç state'siz)
+  // döner. Bu durumlarda ikinci bir kimlik kaynağına düşülür: çağrının
+  // kendisiyle gelen espcode oturum çerezi (varsa) — aynı tarayıcıda GitHub'a
+  // gidip dönen bir kullanıcı için bu neredeyse her zaman doğru sahibi verir.
+  // Hiçbiri yoksa (üçüncü bir kullanıcı kurulumu elden yönetiyor) yalnızca
+  // var olan kaydı senkronize ederiz, körlemesine yeni sahiplik atanmaz.
   async completeInstallation(
-    state: string,
+    state: string | undefined,
     installationId: bigint,
-  ): Promise<InstallState> {
-    const { userId, projectId } = await this.consumeState(state);
+    fallbackUserId: string | null,
+  ): Promise<InstallState | null> {
+    const pending = state ? await this.peekState(state) : null;
     const info = await this.github.appJson<GithubInstallationInfo>(
       'GET',
       `/app/installations/${installationId}`,
     );
-    await this.prisma.githubInstallation.upsert({
-      where: { installationId },
-      create: { userId, installationId, accountLogin: info.account.login },
-      update: { accountLogin: info.account.login },
-    });
-    return { userId, projectId };
+
+    const ownerId = pending?.userId ?? fallbackUserId;
+    if (ownerId) {
+      await this.prisma.githubInstallation.upsert({
+        where: { installationId },
+        create: {
+          userId: ownerId,
+          installationId,
+          accountLogin: info.account.login,
+        },
+        update: { accountLogin: info.account.login },
+      });
+    } else {
+      await this.prisma.githubInstallation.updateMany({
+        where: { installationId },
+        data: { accountLogin: info.account.login },
+      });
+    }
+    return pending;
   }
 
   async listInstallations(userId: string) {
