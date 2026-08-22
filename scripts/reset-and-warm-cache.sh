@@ -5,13 +5,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-docker compose stop ide-builder
-docker compose run --rm --entrypoint sh ide-builder -c 'rm -rf /var/cache/arduino/*'
-docker compose up -d ide-builder
+# Prod'da COMPOSE_FILE=docker-compose.prod.yml ile çağrılır.
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.yml}"
+compose() { docker compose -f "$COMPOSE_FILE" "$@"; }
+
+compose stop ide-builder
+compose run --rm --entrypoint sh ide-builder -c 'rm -rf /var/cache/arduino/*'
+compose up -d ide-builder
 
 FQBNS=(esp32:esp32:esp32 esp32:esp32:esp32c3 esp32:esp32:esp32s3 esp32:esp32:esp32c6)
 for FQBN in "${FQBNS[@]}"; do
   echo "== ısıtılıyor: $FQBN =="
-  docker compose run --rm --entrypoint arduino-cli ide-builder \
+  compose run --rm --entrypoint arduino-cli ide-builder \
     compile --fqbn "$FQBN" --jobs 2 /app/warmup/Blink
 done

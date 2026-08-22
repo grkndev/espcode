@@ -5,6 +5,9 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  // Redis/Prisma bağlantılarını SIGTERM'de kapatmak için (deploy'da her
+  // konteyner yeniden başlatmasında onModuleDestroy'ların çalışması gerekiyor).
+  app.enableShutdownHooks();
 
   // master.plan.md §2 — nihai halde CORS app.espcode.dev'e sabitlenecek;
   // yerel geliştirmede APP_ORIGIN=localhost:3010.

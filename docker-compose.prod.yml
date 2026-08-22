@@ -1,0 +1,117 @@
+name: espcode
+
+# Prod compose — docker-compose.yml (yerel geliştirme) ile paralel duruyor,
+# ona dokunmaz. Farklar: kendi Postgres'i yok (VPS'teki paylaşılan
+# postgres:16 konteynerine shared-db ağı üzerinden bağlanır), hiçbir portu
+# host'a açmaz (girişi nginx-proxy-manager sağlar), APP_ORIGIN/COOKIE_*
+# gerçek domaine sabit. docs/master.plan.md §7, docs/backend.plan.md §8.
+
+networks:
+  ide-net:
+    internal: true
+  # VPS'te zaten var: nginx-proxy-manager + paylaşılan postgres bu ağda.
+  shared-db:
+    external: true
+
+volumes:
+  ide_toolchain:
+  ide_buildcache:
+  ide_libraries:
+  ide_artifacts:
+
+services:
+  redis-jobs:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 192mb
+      --maxmemory-policy noeviction
+      --save ""
+      --appendonly no
+      --requirepass ${REDIS_JOBS_PASSWORD}
+    mem_limit: 256m
+    memswap_limit: 256m
+    cpus: "0.25"
+    networks: [ide-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_JOBS_PASSWORD}", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  ide-builder:
+    build: ./builder
+    platform: linux/amd64
+    restart: unless-stopped
+    depends_on:
+      redis-jobs: { condition: service_healthy }
+    mem_limit: 2g
+    mem_reservation: 256m
+    memswap_limit: 2g
+    cpus: "2.0"
+    cpu_shares: 256
+    pids_limit: 256
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    tmpfs:
+      - /work:size=512m,mode=1777,nodev,nosuid,noexec
+      - /tmp:size=128m,mode=1777,nodev,nosuid,exec
+    volumes:
+      - ide_toolchain:/opt/arduino:ro
+      - ide_buildcache:/var/cache/arduino
+      - ide_libraries:/opt/libs:ro
+    # shared-db'ye KESİNLİKLE katılmaz — ağ izolasyonu backend.plan.md §7'nin
+    # temeli.
+    networks: [ide-net]
+    environment:
+      REDIS_URL: redis://:${REDIS_JOBS_PASSWORD}@redis-jobs:6379/0
+      ARDUINO_DIRECTORIES_DATA: /opt/arduino/data
+      ARDUINO_DIRECTORIES_USER: /opt/arduino/user
+      ARDUINO_DIRECTORIES_DOWNLOADS: /tmp/dl
+      ARDUINO_BUILD_CACHE_PATH: /var/cache/arduino
+      LIBRARY_ROOT: /opt/libs
+      BUILD_TIMEOUT_SEC: "120"
+      COMPILE_JOBS: "2"
+
+  ide-api:
+    build: ./api
+    platform: linux/amd64
+    container_name: espcode-ide-api
+    restart: unless-stopped
+    depends_on:
+      redis-jobs: { condition: service_healthy }
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: "0.5"
+    pids_limit: 128
+    networks: [ide-net, shared-db]
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    volumes:
+      - ide_artifacts:/var/lib/espcode/artifacts
+      - ide_libraries:/var/lib/espcode/libraries
+      - ./secrets:/run/secrets:ro
+    environment:
+      REDIS_URL: redis://:${REDIS_JOBS_PASSWORD}@redis-jobs:6379/0
+      APP_ORIGIN: ${APP_ORIGIN}
+      DATABASE_URL: ${DATABASE_URL}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      ARTIFACT_DIR: /var/lib/espcode/artifacts
+      LIBRARY_DIR: /var/lib/espcode/libraries
+      ARTIFACT_SIGN_TTL_SEC: "300"
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_SLUG: ${GITHUB_APP_SLUG}
+      GITHUB_APP_PRIVATE_KEY_PATH: ${GITHUB_APP_PRIVATE_KEY_PATH}

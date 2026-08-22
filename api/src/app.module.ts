@@ -7,6 +7,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { BuildsModule } from './builds/builds.module';
 import { GithubModule } from './github/github.module';
 import { LibrariesModule } from './libraries/libraries.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { LibrariesModule } from './libraries/libraries.module';
     BuildsModule,
     LibrariesModule,
     CompileModule,
+    HealthModule,
   ],
 })
 export class AppModule implements NestModule {
