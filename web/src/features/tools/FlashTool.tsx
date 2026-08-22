@@ -222,25 +222,25 @@ export default function FlashTool() {
                 : "Karta Yaz"}
             </Button>
 
-            {(writing || log) && (
-              <div className="mt-4">
-                <div className="h-1 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={
-                      percent !== null
-                        ? "h-full rounded-full bg-primary transition-[width]"
-                        : "h-full w-2/5 animate-[status-indeterminate_1.1s_ease-in-out_infinite] rounded-full bg-primary"
-                    }
-                    style={percent !== null ? { width: `${percent}%` } : undefined}
-                  />
-                </div>
-                <pre
-                  ref={logRef}
-                  className="mt-3 max-h-64 overflow-y-auto rounded-lg border border-border bg-card p-3 font-[family-name:var(--font-code)] text-xs whitespace-pre-wrap text-muted-foreground"
-                >
-                  {log.replace(/\r\n?/g, "\n") || "Henüz bir günlük yok."}
-                </pre>
+            {/* Yalnızca gerçek yazma sırasında görünür — bağlanma/çip tespiti
+                sırasında (writing=false) ya da bittikten sonra (log dolu ama
+                writing=false) hiç render edilmez, kayan efekt kalmaz. */}
+            {writing && (
+              <div className="mt-4 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${percent ?? 0}%` }}
+                />
               </div>
+            )}
+
+            {log && (
+              <pre
+                ref={logRef}
+                className={`${writing ? "mt-3" : "mt-4"} max-h-64 overflow-y-auto rounded-lg border border-border bg-card p-3 font-[family-name:var(--font-code)] text-xs whitespace-pre-wrap text-muted-foreground`}
+              >
+                {log.replace(/\r\n?/g, "\n")}
+              </pre>
             )}
           </>
         )}

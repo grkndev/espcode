@@ -13,6 +13,7 @@ import {
   Plus,
   Search,
   Trash2,
+  Wrench,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -336,6 +337,10 @@ export default function Dashboard({ user, onLogout }: DashboardProps) {
           </span>
         </div>
         <div className="flex items-center gap-3">
+          <Button render={<Link href="/tools" />} nativeButton={false} variant="outline" size="sm">
+            <Wrench size={14} strokeWidth={2.25} />
+            Araçlar
+          </Button>
           <NotificationBell />
           <AccountMenu user={user} onLogout={onLogout} align="end" />
         </div>
