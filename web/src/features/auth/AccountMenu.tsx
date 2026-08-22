@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { CreditCard, LogOut, Monitor, Moon, Sun, User } from "lucide-react";
+import { CreditCard, LogOut, Monitor, Moon, Sun, User, Wrench } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -81,6 +81,13 @@ export default function AccountMenu({
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
           >
             <CreditCard size={15} strokeWidth={2} /> Abonelik
+          </Link>
+          <Link
+            href="/tools"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted"
+          >
+            <Wrench size={15} strokeWidth={2} /> Araçlar
           </Link>
         </div>
 

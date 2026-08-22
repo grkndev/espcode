@@ -95,6 +95,8 @@ export async function getChipInfo(
 export interface FlashJob {
   data: Uint8Array;
   address: number;
+  /** Yazmadan önce tüm flash'ı sil — varsayılan false (IDE akışı hiç geçmiyor). */
+  eraseAll?: boolean;
 }
 
 // frontend.plan.md §5.1 — kendi bağlantısını kurar, yazar, resetler, portu
@@ -117,7 +119,7 @@ export async function flashFirmware(
           flashMode: "keep",
           flashFreq: "keep",
           flashSize: "keep",
-          eraseAll: false,
+          eraseAll: job.eraseAll ?? false,
           compress: true,
           reportProgress: (_fileIndex, written, total) => onProgress(written / total),
         });
